@@ -967,6 +967,7 @@ dependencies = [
     { name = "numpy" },
     { name = "pymongo" },
     { name = "python-dotenv" },
+    { name = "requests" },
     { name = "uvicorn" },
     { name = "voyageai" },
 ]
@@ -980,6 +981,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.0.0" },
     { name = "pymongo", specifier = ">=4.10.1" },
     { name = "python-dotenv", specifier = ">=1.0.1" },
+    { name = "requests", specifier = ">=2.32.0" },
     { name = "uvicorn", specifier = ">=0.32.0" },
     { name = "voyageai", specifier = ">=0.3.2" },
 ]

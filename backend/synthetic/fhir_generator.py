@@ -16,6 +16,7 @@ monitors with wearable patches.
 """
 from __future__ import annotations
 
+import base64
 import random
 import uuid
 from datetime import date, datetime, timedelta, timezone
@@ -300,7 +301,7 @@ class FHIRPatientGenerator:
         patient_resource = {
             "resourceType": "Patient",
             "id": patient_id,
-            "meta": {"source": hospital["name"]},
+            "meta": {"source": f"urn:oid:{hospital['oid']}"},
             "identifier": [
                 {
                     "use": "official",
@@ -564,7 +565,7 @@ class FHIRPatientGenerator:
                 {
                     "attachment": {
                         "contentType": "text/plain",
-                        "data": note,  # base64 in real FHIR; plain text for demo
+                        "data": base64.b64encode(note.encode("utf-8")).decode("ascii"),
                         "title": "Clinical Note",
                     }
                 }

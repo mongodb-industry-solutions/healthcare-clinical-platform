@@ -37,6 +37,10 @@ class GeneratePatientsRequest(BaseModel):
         description="Assign all patients to a specific hospital (random if omitted)",
     )
     seed: Optional[int] = Field(default=None, description="Random seed for reproducibility")
+    send_to_healthlake: bool = Field(
+        default=False,
+        description="Also POST each FHIR bundle to AWS HealthLake (requires HEALTHLAKE_DATASTORE_ID env var)",
+    )
 
 
 class GenerateVitalsRequest(BaseModel):
@@ -78,6 +82,8 @@ class PatientSummary(BaseModel):
 class GeneratePatientsResponse(BaseModel):
     generated: int
     patient_ids: list[str]
+    healthlake_sent: int = 0
+    healthlake_errors: list[str] = []
 
 
 class GenerateVitalsResponse(BaseModel):

@@ -6,9 +6,11 @@ All business logic lives here — no HTTP, no MongoDB queries.
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Any, Optional
 
+from healthlake.client import HealthLakeClient
 from synthetic.fhir_generator import FHIRPatientGenerator
 from synthetic.models import (
     GeneratePatientsRequest,
@@ -22,6 +24,9 @@ from synthetic.repository import SyntheticRepository
 from synthetic.vitals_simulator import VitalsSimulator
 
 
+logger = logging.getLogger(__name__)
+
+
 class SyntheticService:
     def __init__(self, repo: SyntheticRepository):
         self._repo = repo
@@ -31,7 +36,7 @@ class SyntheticService:
     # ------------------------------------------------------------------
 
     def generate_patients(self, body: GeneratePatientsRequest) -> GeneratePatientsResponse:
-        """Generate FHIR R4 patient bundles and persist them to MongoDB."""
+        """Generate FHIR R4 patient bundles, persist to MongoDB, optionally push to HealthLake."""
         generator   = FHIRPatientGenerator(seed=body.seed)
         patient_ids: list[str] = []
         docs: list[dict[str, Any]] = []
@@ -43,7 +48,31 @@ class SyntheticService:
             patient_ids.append(patient["meta"]["patient_id"])
 
         self._repo.insert_patients(docs)
-        return GeneratePatientsResponse(generated=len(patient_ids), patient_ids=patient_ids)
+
+        healthlake_sent   = 0
+        healthlake_errors: list[str] = []
+
+        if body.send_to_healthlake:
+            hl_client = HealthLakeClient()
+            for doc in docs:
+                pid = doc["meta"]["patient_id"]
+                try:
+                    sent, errs = hl_client.send_resources_from_bundle(doc["bundle"])
+                    healthlake_sent += sent
+                    healthlake_errors.extend(
+                        f"Patient {pid} — {e}" for e in errs
+                    )
+                except Exception as exc:
+                    msg = f"Patient {pid}: {exc}"
+                    logger.warning("HealthLake send failed — %s", msg)
+                    healthlake_errors.append(msg)
+
+        return GeneratePatientsResponse(
+            generated         = len(patient_ids),
+            patient_ids       = patient_ids,
+            healthlake_sent   = healthlake_sent,
+            healthlake_errors = healthlake_errors,
+        )
 
     def list_patients(
         self,
