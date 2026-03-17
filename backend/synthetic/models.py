@@ -8,10 +8,6 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field
 
 
-# ---------------------------------------------------------------------------
-# Enums
-# ---------------------------------------------------------------------------
-
 class VitalsPattern(str, Enum):
     """Vitals simulation pattern type."""
     NORMAL = "normal"
@@ -30,11 +26,11 @@ class ProfileType(str, Enum):
     """
     Patient profile type controlling demographics, conditions, and medications.
 
-    target    — Maria: 72-year-old female, T2DM + CKD3 + HTN + neuropathy,
+    target    — Maria or Mario: 72-year-old female/male, T2DM + CKD3 + HTN + neuropathy,
                 on beta-blocker + insulin + metformin + ACE inhibitor.
                 Primary demo patient for CDS alerts and the context-matters story.
 
-    healthy   — James: 25–40-year-old male, no chronic conditions,
+    healthy   — James / Jamie: 25–40-year-old female/male, no chronic conditions,
                 recovering from minor surgery, OTC pain relief only.
                 Used for the side-by-side "same vitals, different response" demo.
 
