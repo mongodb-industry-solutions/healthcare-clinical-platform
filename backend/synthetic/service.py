@@ -42,7 +42,10 @@ class SyntheticService:
         docs: list[dict[str, Any]] = []
 
         for _ in range(body.count):
-            patient = generator.generate_patient(hospital=body.hospital)
+            patient = generator.generate_patient(
+                hospital=body.hospital,
+                profile_type=body.profile_type.value,
+            )
             patient["_type"] = "synthetic_patient"
             docs.append(patient)
             patient_ids.append(patient["meta"]["patient_id"])
@@ -207,6 +210,7 @@ class SyntheticService:
             "age":             age,
             "gender":          patient_resource.get("gender", ""),
             "source_hospital": meta.get("source_hospital", ""),
+            "profile_type":    meta.get("profile_type", "target"),
             "conditions":      conditions,
             "medications":     medications,
             "created_at":      meta.get("ingested_at", ""),
