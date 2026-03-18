@@ -104,7 +104,10 @@ class SyntheticService:
         if not patient_doc:
             return None
 
-        has_beta_blocker: bool = patient_doc.get("meta", {}).get("has_beta_blocker", False)
+        meta = patient_doc.get("meta", {})
+        has_beta_blocker: bool = meta.get("has_beta_blocker", False)
+        has_ckd: bool = "433144002" in meta.get("condition_codes", [])
+        has_insulin: bool = meta.get("has_insulin", False)
 
         simulator = VitalsSimulator(seed=body.seed)
         readings  = simulator.generate(
@@ -113,6 +116,8 @@ class SyntheticService:
             hours            = body.hours,
             interval_minutes = body.interval_minutes,
             has_beta_blocker = has_beta_blocker,
+            has_ckd          = has_ckd,
+            has_insulin       = has_insulin,
         )
 
         self._repo.insert_vitals(readings)
