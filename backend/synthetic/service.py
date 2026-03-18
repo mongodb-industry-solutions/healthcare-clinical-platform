@@ -31,9 +31,7 @@ class SyntheticService:
     def __init__(self, repo: SyntheticRepository):
         self._repo = repo
 
-    # ------------------------------------------------------------------
-    # Patients
-    # ------------------------------------------------------------------
+    ######## Patients ########
 
     def generate_patients(self, body: GeneratePatientsRequest) -> GeneratePatientsResponse:
         """Generate FHIR R4 patient bundles, persist to MongoDB, optionally push to HealthLake."""
@@ -91,9 +89,7 @@ class SyntheticService:
         """Return the full FHIR bundle document for a patient, or None."""
         return self._repo.find_patient_by_id(patient_id)
 
-    # ------------------------------------------------------------------
-    # Vitals
-    # ------------------------------------------------------------------
+    ######## Vitals ########
 
     def generate_vitals(
         self,
@@ -145,9 +141,7 @@ class SyntheticService:
             pattern=pattern,
         )
 
-    # ------------------------------------------------------------------
-    # Status / admin
-    # ------------------------------------------------------------------
+   ######## Status / admin ########
 
     def get_status(self) -> StatusResponse:
         return StatusResponse(
@@ -162,9 +156,7 @@ class SyntheticService:
             "vitals_deleted":   self._repo.delete_all_vitals(),
         }
 
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
+    ######## Private Helpers ########
 
     @staticmethod
     def _extract_summary(doc: dict[str, Any]) -> dict[str, Any]:
