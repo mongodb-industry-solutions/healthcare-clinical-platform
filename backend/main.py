@@ -14,13 +14,14 @@ MONGODB_URI = os.getenv("MONGODB_URI")
 DATABASE_NAME = os.getenv("DATABASE_NAME")
 APP_NAME = os.getenv("APP_NAME")
 VITALS_COLLECTION = "synthetic_vitals"
+TIMESERIES_METAFIELD = "patient_id"
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: create Time Series collection if doesn't exist
     creator = TimeSeriesCollectionCreator(MONGODB_URI, DATABASE_NAME, APP_NAME)
-    creator.create_timeseries_collection(VITALS_COLLECTION, "timestamp", "minutes")
+    creator.create_timeseries_collection(VITALS_COLLECTION, "timestamp", TIMESERIES_METAFIELD, "minutes")
     yield
 
 
