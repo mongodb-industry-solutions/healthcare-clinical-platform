@@ -77,6 +77,7 @@ if __name__ == "__main__":
     response = TimeSeriesCollectionCreator().create_timeseries_collection(
         collection_name="telemetry_data",
         time_field="timestamp",
-        granularity="minutes"
+        granularity="minutes",
+        metafield="patient_id"
     )
     print(response)
