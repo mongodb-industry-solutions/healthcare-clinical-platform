@@ -25,7 +25,7 @@ class TimeSeriesCollectionCreator(MongoDBConnector):
     def __init__(self, uri=None, database_name=None, appname=None):
         super().__init__(uri, database_name, appname)
 
-    def create_timeseries_collection(self, collection_name: str, time_field: str, granularity: str = "minutes", expire_after_seconds=None):
+    def create_timeseries_collection(self, collection_name: str, time_field: str, metafield: str, granularity: str = "minutes", expire_after_seconds=None):
         """
         Create a time series collection if it doesn't exist.
 
@@ -33,6 +33,7 @@ class TimeSeriesCollectionCreator(MongoDBConnector):
             collection_name (str): Collection name.
             time_field (str): Time field.
             granularity (str, optional): Granularity. Defaults to "minutes".
+            metafield (str, optional): Metafield used in the time series collection
             expire_after_seconds (int, optional): Document expiration time in seconds. Defaults to None.
         """
         codec_options = CodecOptions(
@@ -46,7 +47,8 @@ class TimeSeriesCollectionCreator(MongoDBConnector):
             collection_options = {
                 'timeseries': {
                     'timeField': time_field,
-                    'granularity': granularity
+                    'granularity': granularity,
+                    "metaField": metafield
                 },
                 'codec_options': codec_options
             }
