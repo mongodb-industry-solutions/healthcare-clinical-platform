@@ -57,9 +57,6 @@ _MIXED_WEIGHTS = [
 # Keys: snomed → used to look up medications below
 # ---------------------------------------------------------------------------
 
-# Core trio — every generated patient will have all three
-_CORE_SNOMED = {"44054006", "433144002", "59621000"}  # T2DM, CKD3, HTN
-
 CONDITION_CATALOGUE: list[dict[str, Any]] = [
     # ---- Core target profile ----
     {
