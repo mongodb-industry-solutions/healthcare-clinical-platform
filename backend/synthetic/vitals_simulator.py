@@ -13,12 +13,24 @@ Three simulation patterns are supported:
   acute         — rapid-onset deterioration representing an impending event
                   (sepsis, decompensated CHF, COPD exacerbation).
 
-Medication awareness
---------------------
+Medication & condition awareness
+--------------------------------
 If the patient's metadata indicates a beta-blocker is active (`has_beta_blocker`),
 the simulated resting heart rate is shifted ~15 bpm lower, consistent with the
-pharmacological effect. This allows the dashboard to flag when the HR is
-unexpectedly high *given* the medication context.
+pharmacological effect.
+
+CKD patients (`has_ckd`) receive a lower SpO2 baseline (~95.5 vs 97.5) to
+reflect chronic hypoxemia, and during deteriorating/acute patterns their
+respiratory rate is elevated +3–4 breaths/min (Kussmaul breathing from
+metabolic acidosis).
+
+Insulin-dependent patients (`has_insulin`) have a ~25 % chance of exhibiting
+1–2 hypoglycemic dip windows during normal/deteriorating patterns: HR spikes
++20–30 bpm, activity drops sharply, slight temperature decrease.
+
+Acute-pattern generation for CKD patients overlays a sepsis-specific
+signature with faster temperature rise, more aggressive HR, and steeper
+SpO2 decline.
 
 Output format
 -------------
@@ -35,6 +47,7 @@ collection:
       "spo2":             <float>,   # %
       "activity_level":   <float>,   # 0..10 arbitrary units
       "pattern":          <str>,     # for demo provenance
+      "event":            <str|None> # "hypoglycemia", "sepsis", or None
   }
 """
 from __future__ import annotations
@@ -62,6 +75,12 @@ _BASELINES = {
 # Beta-blocker shifts nominal resting HR down
 _BETA_BLOCKER_HR_SHIFT = -15.0  # bpm
 
+# CKD patients: mild chronic hypoxemia → lower SpO2 baseline
+_CKD_SPO2_SHIFT = -2.0  # %
+
+# Metabolic acidosis (CKD + deterioration): compensatory Kussmaul breathing
+_METABOLIC_ACIDOSIS_RR_SHIFT = 3.5  # breaths/min
+
 
 # ---------------------------------------------------------------------------
 # Deterioration profiles
@@ -81,6 +100,15 @@ _ACUTE_DRIFT: dict[str, tuple[float, float]] = {
     "respiratory_rate": (+2.5,  2.0),
     "temperature":      (+0.12, 1.5),
     "spo2":             (-1.2,  2.0),
+    "activity_level":   (-1.5,  0.5),
+}
+
+# Sepsis overlay (acute + CKD): faster temp rise, more aggressive HR/SpO2
+_SEPSIS_DRIFT: dict[str, tuple[float, float]] = {
+    "heart_rate":       (+8.0,  3.0),
+    "respiratory_rate": (+3.0,  2.2),
+    "temperature":      (+0.20, 1.8),
+    "spo2":             (-1.8,  2.5),
     "activity_level":   (-1.5,  0.5),
 }
 
@@ -114,6 +142,8 @@ class VitalsSimulator:
         hours: int = 24,
         interval_minutes: int = 5,
         has_beta_blocker: bool = False,
+        has_ckd: bool = False,
+        has_insulin: bool = False,
     ) -> list[dict[str, Any]]:
         """
         Generate `hours` of vitals history ending at UTC now.
@@ -133,12 +163,22 @@ class VitalsSimulator:
             for i in range(n_readings)
         ]
 
+        is_sepsis = pattern == "acute" and has_ckd
+
         # Build per-vital time series
         series = self._build_series(
             pattern=pattern,
             n=n_readings,
             has_beta_blocker=has_beta_blocker,
+            has_ckd=has_ckd,
         )
+
+        # Per-reading event markers
+        events: list[str | None] = ["sepsis"] * n_readings if is_sepsis else [None] * n_readings
+
+        # Hypoglycemic episode injection (insulin patients, non-acute patterns)
+        if has_insulin and pattern in ("normal", "deteriorating"):
+            self._inject_hypoglycemic_episodes(series, events, n_readings, interval_minutes)
 
         readings: list[dict[str, Any]] = []
         for i, ts in enumerate(timestamps):
@@ -153,6 +193,7 @@ class VitalsSimulator:
                     "spo2":             round(float(series["spo2"][i]),             1),
                     "activity_level":   round(float(series["activity_level"][i]),   2),
                     "pattern":          pattern,
+                    "event":            events[i],
                 }
             )
         return readings
@@ -166,11 +207,15 @@ class VitalsSimulator:
         pattern: str,
         n: int,
         has_beta_blocker: bool,
+        has_ckd: bool = False,
     ) -> dict[str, np.ndarray]:
         """Return a dict of vital → numpy array of length n."""
 
         drift_map: dict[str, tuple[float, float]]
-        if pattern == "deteriorating":
+        if pattern == "acute" and has_ckd:
+            # Sepsis overlay: enhanced acute drift
+            drift_map = _SEPSIS_DRIFT
+        elif pattern == "deteriorating":
             drift_map = _DETERIORATING_DRIFT
         elif pattern == "acute":
             drift_map = _ACUTE_DRIFT
@@ -188,6 +233,14 @@ class VitalsSimulator:
             # Medication context adjustment
             if vital == "heart_rate" and has_beta_blocker:
                 mean += _BETA_BLOCKER_HR_SHIFT
+
+            # CKD: chronic hypoxemia → lower SpO2 baseline
+            if vital == "spo2" and has_ckd:
+                mean += _CKD_SPO2_SHIFT
+
+            # Metabolic acidosis: CKD + deterioration → compensatory tachypnea
+            if vital == "respiratory_rate" and has_ckd and pattern in ("deteriorating", "acute"):
+                mean += _METABOLIC_ACIDOSIS_RR_SHIFT
 
             drift_per_unit, std_mult = drift_map.get(vital, (0.0, 1.0))
 
@@ -210,3 +263,46 @@ class VitalsSimulator:
             series[vital] = raw
 
         return series
+
+    # ------------------------------------------------------------------
+    # Hypoglycemic episode injection
+    # ------------------------------------------------------------------
+
+    def _inject_hypoglycemic_episodes(
+        self,
+        series: dict[str, np.ndarray],
+        events: list[str | None],
+        n: int,
+        interval_minutes: int,
+    ) -> None:
+        """Randomly inject 1–2 hypoglycemic dip windows (~25 % chance)."""
+        if self.rng.random() > 0.25:
+            return
+
+        n_episodes = self.rng.randint(1, 2)
+        window_min = max(15 // interval_minutes, 1)
+        window_max = max(30 // interval_minutes, window_min + 1)
+
+        for _ in range(n_episodes):
+            window_len = self.rng.randint(window_min, window_max)
+            if n - window_len <= 0:
+                continue
+            start = self.rng.randint(0, n - window_len - 1)
+            end   = start + window_len
+
+            # HR spike +20–30 bpm
+            series["heart_rate"][start:end] += self.np_rng.uniform(20.0, 30.0, window_len)
+            # Activity drops sharply
+            series["activity_level"][start:end] *= 0.2
+            # Slight temperature drop
+            series["temperature"][start:end] -= self.np_rng.uniform(0.2, 0.5, window_len)
+
+            # Re-clip affected vitals
+            for vital in ("heart_rate", "activity_level", "temperature"):
+                params = _BASELINES[vital]
+                series[vital][start:end] = np.clip(
+                    series[vital][start:end], params["min"], params["max"],
+                )
+
+            for i in range(start, end):
+                events[i] = "hypoglycemia"
