@@ -814,7 +814,8 @@ class FHIRPatientGenerator:
             options = _CARDIAC_MEDS.get(snomed, [])
             return [self.rng.choice(options)] if options else []
 
-        # target — always metformin + one insulin; one med per other condition
+        # target — always metformin + one insulin; mandatory beta-blocker
+        # (Atenolol) + ACE inhibitor (Lisinopril); one med per other condition
         meds = []
         seen_rxnorm: set[str] = set()
         for cond in conditions:
@@ -827,6 +828,15 @@ class FHIRPatientGenerator:
                     if med.get("is_metformin") or med.get("is_insulin"):
                         if med["rxnorm"] not in seen_rxnorm:
                             if med.get("is_insulin") and any(m.get("is_insulin") for m in meds):
+                                continue
+                            seen_rxnorm.add(med["rxnorm"])
+                            meds.append(med)
+            elif snomed == "59621000":  # Hypertension — always Atenolol + ACE inhibitor
+                for med in options:
+                    if med.get("is_beta_blocker") or med.get("is_ace_inhibitor"):
+                        if med["rxnorm"] not in seen_rxnorm:
+                            # Only one ACE inhibitor
+                            if med.get("is_ace_inhibitor") and any(m.get("is_ace_inhibitor") for m in meds):
                                 continue
                             seen_rxnorm.add(med["rxnorm"])
                             meds.append(med)
