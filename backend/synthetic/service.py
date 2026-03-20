@@ -126,8 +126,8 @@ class SyntheticService:
             patient_id       = patient_id,
             readings_written = len(readings),
             pattern          = body.pattern.value,
-            start_time       = readings[0]["timestamp"],
-            end_time         = readings[-1]["timestamp"],
+            start_time       = readings[0]["timestamp"].isoformat(),
+            end_time         = readings[-1]["timestamp"].isoformat(),
         )
 
     def get_vitals(

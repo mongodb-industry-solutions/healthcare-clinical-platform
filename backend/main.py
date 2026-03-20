@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 from synthetic.router import router as synthetic_router
+from materializer.router import router as materializer_router
 from _collection_initializer import CollectionInitializer
 
 load_dotenv()
@@ -77,6 +78,7 @@ app.add_middleware(
 )
 
 app.include_router(synthetic_router)
+app.include_router(materializer_router)
 
 @app.get("/")
 async def read_root(request: Request):

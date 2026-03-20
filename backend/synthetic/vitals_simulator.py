@@ -184,7 +184,7 @@ class VitalsSimulator:
         for i, ts in enumerate(timestamps):
             readings.append(
                 {
-                    "timestamp":        ts.isoformat(),
+                    "timestamp":        ts,
                     "patient_id":       patient_id,
                     "device_id":        device_id,
                     "heart_rate":       round(float(series["heart_rate"][i]),       1),
