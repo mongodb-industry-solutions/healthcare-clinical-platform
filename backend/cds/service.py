@@ -397,12 +397,15 @@ class CDSService:
         if spo2 is not None and spo2 < spo2_floor:
             return None  # Low SpO2 points to respiratory, not hypo
 
+        spo2_floor_note = " (adjusted for CKD baseline)" if flags.get("has_ckd") else ""
         return self._build_alert(
             rule, p360, current,
             value=current_val,
             extra_context={
                 "baseline_hr": round(baseline_hr, 1),
                 "spike_pct": round(pct_change, 1),
+                "spo2_floor": int(spo2_floor),
+                "spo2_floor_note": spo2_floor_note,
             },
         )
 

@@ -82,7 +82,7 @@ CDS_RULES: list[dict] = [
             "reasoning": (
                 "Patient has T2DM, is on insulin, and is ≥65 years old. "
                 "HR spiked >{threshold}% above 2-hour baseline ({baseline_hr} → {value} bpm), "
-                "activity decreased suddenly, and SpO2 remains ≥95%. "
+                "activity decreased suddenly, and SpO2 remains ≥{spo2_floor}%{spo2_floor_note}. "
                 "This multi-factor pattern is consistent with a hypoglycemic episode."
             ),
             "suggested_actions": [
