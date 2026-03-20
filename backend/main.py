@@ -8,6 +8,8 @@ from dotenv import load_dotenv
 from synthetic.router import router as synthetic_router
 from materializer.router import router as materializer_router
 from cds.router import router as cds_router
+from hooks.router import router as hooks_router
+from dashboard.router import router as dashboard_router
 from _collection_initializer import CollectionInitializer
 
 load_dotenv()
@@ -81,6 +83,8 @@ app.add_middleware(
 app.include_router(synthetic_router)
 app.include_router(materializer_router)
 app.include_router(cds_router)
+app.include_router(hooks_router)
+app.include_router(dashboard_router)
 
 @app.get("/")
 async def read_root(request: Request):
