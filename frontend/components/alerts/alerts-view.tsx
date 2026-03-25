@@ -177,7 +177,7 @@ function AlertCard({ alert, patient }: AlertWithPatient) {
             <p className="text-sm text-muted-foreground mt-2 line-clamp-2">{alert.reasoning}</p>
             <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
               <div className="flex items-center gap-1"><Clock className="h-3 w-3" />{formatRelativeTime(alert.created_at)}</div>
-              {alert.suggested_actions.length > 0 && (
+              {alert.suggested_actions?.length > 0 && (
                 <div className="flex items-center gap-1"><CheckCircle2 className="h-3 w-3" />{alert.suggested_actions.length} suggested actions</div>
               )}
             </div>
