@@ -116,7 +116,7 @@ export function DashboardShell({ children }: DashboardShellProps) {
                     <Activity className="h-4 w-4" />
                   </div>
                   <div className="flex flex-col gap-0.5 leading-none">
-                    <span className="font-semibold">MedWatch Health</span>
+                    <span className="font-semibold">Leafy Health</span>
                     <span className="text-xs text-muted-foreground">Clinical Platform</span>
                   </div>
                 </Link>
