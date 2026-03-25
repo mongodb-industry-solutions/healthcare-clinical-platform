@@ -101,23 +101,76 @@ class MaterializerRepository:
             {"patient_id": patient_id}, {"_id": 0}
         )
 
+    _SEVERITY_SCORE_MAP = {"critical": 4, "high": 3, "moderate": 2, "low": 1}
+
     def list_patient_360(
         self,
         skip: int = 0,
         limit: int = 50,
         hospital: Optional[str] = None,
         profile_type: Optional[str] = None,
+        sort_by: str = "alert_severity",
     ) -> list[dict[str, Any]]:
-        """Return paginated patient_360 documents with optional filters."""
-        query: dict[str, Any] = {}
+        """Return paginated patient_360 documents sorted at the DB level."""
+        match: dict[str, Any] = {}
         if hospital:
-            query["source_hospital"] = hospital
+            match["source_hospital"] = hospital
         if profile_type:
-            query["profile_type"] = profile_type
+            match["profile_type"] = profile_type
+
         collection = self._db.get_collection(PATIENT_360_COLLECTION)
+
+        if sort_by == "alert_severity":
+            pipeline: list[dict[str, Any]] = []
+            if match:
+                pipeline.append({"$match": match})
+            pipeline.extend([
+                {
+                    "$addFields": {
+                        "_max_sev": {
+                            "$max": {
+                                "$map": {
+                                    "input": {"$ifNull": ["$active_alerts", []]},
+                                    "as": "a",
+                                    "in": {
+                                        "$switch": {
+                                            "branches": [
+                                                {"case": {"$eq": ["$$a.severity", "critical"]}, "then": 4},
+                                                {"case": {"$eq": ["$$a.severity", "high"]}, "then": 3},
+                                                {"case": {"$eq": ["$$a.severity", "moderate"]}, "then": 2},
+                                                {"case": {"$eq": ["$$a.severity", "low"]}, "then": 1},
+                                            ],
+                                            "default": 0,
+                                        }
+                                    },
+                                }
+                            }
+                        },
+                        "_alert_count": {"$size": {"$ifNull": ["$active_alerts", []]}},
+                    }
+                },
+                {"$sort": {"_max_sev": -1, "_alert_count": -1}},
+                {"$skip": skip},
+                {"$limit": limit},
+                {"$project": {"_id": 0, "_max_sev": 0, "_alert_count": 0}},
+            ])
+            return list(collection.aggregate(pipeline))
+
+        sort_spec = self._build_sort_spec(sort_by)
         return list(
-            collection.find(query, {"_id": 0}).skip(skip).limit(limit)
+            collection.find(match, {"_id": 0})
+            .sort(sort_spec)
+            .skip(skip)
+            .limit(limit)
         )
+
+    @staticmethod
+    def _build_sort_spec(sort_by: str) -> list[tuple[str, int]]:
+        if sort_by == "name":
+            return [("demographics.name", 1)]
+        if sort_by == "hospital":
+            return [("source_hospital", 1)]
+        return [("updated_at", -1)]
 
     def count_patient_360(self) -> int:
         """Count patient_360 documents."""

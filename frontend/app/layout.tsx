@@ -9,26 +9,12 @@ export const metadata: Metadata = {
   title: 'MedWatch Health | Clinical Monitoring Platform',
   description: 'Unified clinical monitoring platform for remote patient monitoring with real-time vitals, CDS alerts, and HEDIS care gap tracking.',
   icons: {
-    icon: [
-      {
-        url: '/icon-light-32x32.png',
-        media: '(prefers-color-scheme: light)',
-      },
-      {
-        url: '/icon-dark-32x32.png',
-        media: '(prefers-color-scheme: dark)',
-      },
-      {
-        url: '/icon.svg',
-        type: 'image/svg+xml',
-      },
-    ],
-    apple: '/apple-icon.png',
+    icon: '/icon.svg',
   },
 }
 
 export const viewport: Viewport = {
-  themeColor: '#1a1a2e',
+  themeColor: '#00684A',
   width: 'device-width',
   initialScale: 1,
 }
@@ -39,7 +25,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased min-h-screen bg-background text-foreground`}>
         {children}
       </body>

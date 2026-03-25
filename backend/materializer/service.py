@@ -140,10 +140,12 @@ class MaterializerService:
         limit: int = 50,
         hospital: Optional[str] = None,
         profile_type: Optional[str] = None,
+        sort_by: str = "alert_severity",
     ) -> list[dict[str, Any]]:
         """Return paginated Patient 360 documents."""
         return self._repo.list_patient_360(
-            skip=skip, limit=limit, hospital=hospital, profile_type=profile_type,
+            skip=skip, limit=limit, hospital=hospital,
+            profile_type=profile_type, sort_by=sort_by,
         )
 
     def get_status(self) -> dict[str, int]:

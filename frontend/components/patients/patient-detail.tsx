@@ -349,7 +349,7 @@ function AlertBanner({ alert }: { alert: Patient360["active_alerts"][0] }) {
           <Badge variant={isCritical ? "destructive" : "default"} className={cn("text-xs", !isCritical && "bg-warning text-warning-foreground")}>{alert.severity}</Badge>
         </div>
         <p className="text-sm text-muted-foreground mt-1">{alert.reasoning}</p>
-        {alert.suggested_actions.length > 0 && (
+        {alert.suggested_actions?.length > 0 && (
           <div className="flex flex-wrap gap-2 mt-2">
             {alert.suggested_actions.slice(0, 3).map((action, i) => (
               <Badge key={i} variant="outline" className="text-xs">{action}</Badge>

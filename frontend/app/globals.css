@@ -4,82 +4,50 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --background: oklch(0.13 0.01 260);
-  --foreground: oklch(0.95 0 0);
-  --card: oklch(0.16 0.01 260);
-  --card-foreground: oklch(0.95 0 0);
-  --popover: oklch(0.16 0.01 260);
-  --popover-foreground: oklch(0.95 0 0);
-  --primary: oklch(0.65 0.18 200);
+  /* Light clinical theme — MongoDB green accents */
+  --background: oklch(0.98 0.003 155);
+  --foreground: oklch(0.16 0.03 210);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.16 0.03 210);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.16 0.03 210);
+  --primary: oklch(0.44 0.11 165);
   --primary-foreground: oklch(0.98 0 0);
-  --secondary: oklch(0.22 0.01 260);
-  --secondary-foreground: oklch(0.85 0 0);
-  --muted: oklch(0.22 0.01 260);
-  --muted-foreground: oklch(0.65 0 0);
-  --accent: oklch(0.25 0.02 260);
-  --accent-foreground: oklch(0.95 0 0);
+  --secondary: oklch(0.96 0.008 155);
+  --secondary-foreground: oklch(0.28 0.03 210);
+  --muted: oklch(0.94 0.008 155);
+  --muted-foreground: oklch(0.50 0.01 210);
+  --accent: oklch(0.95 0.02 155);
+  --accent-foreground: oklch(0.22 0.03 210);
   --destructive: oklch(0.55 0.22 25);
   --destructive-foreground: oklch(0.98 0 0);
-  --border: oklch(0.28 0.01 260);
-  --input: oklch(0.22 0.01 260);
-  --ring: oklch(0.65 0.18 200);
+  --border: oklch(0.91 0.006 155);
+  --input: oklch(0.91 0.006 155);
+  --ring: oklch(0.44 0.11 165);
 
   --critical: oklch(0.55 0.22 25);
-  --warning: oklch(0.75 0.18 65);
-  --success: oklch(0.65 0.18 150);
-  --info: oklch(0.65 0.18 200);
+  --warning: oklch(0.72 0.17 60);
+  --warning-foreground: oklch(0.22 0.04 50);
+  --success: oklch(0.52 0.14 155);
+  --info: oklch(0.52 0.14 240);
 
-  --chart-1: oklch(0.65 0.18 200);
-  --chart-2: oklch(0.70 0.16 150);
-  --chart-3: oklch(0.75 0.18 65);
+  --chart-1: oklch(0.44 0.11 165);
+  --chart-2: oklch(0.52 0.14 240);
+  --chart-3: oklch(0.68 0.15 60);
   --chart-4: oklch(0.55 0.22 25);
-  --chart-5: oklch(0.60 0.15 280);
+  --chart-5: oklch(0.55 0.14 310);
 
   --radius: 0.5rem;
 
-  --sidebar: oklch(0.11 0.01 260);
-  --sidebar-foreground: oklch(0.85 0 0);
-  --sidebar-primary: oklch(0.65 0.18 200);
+  /* Light sidebar with green accents */
+  --sidebar: oklch(0.985 0.003 155);
+  --sidebar-foreground: oklch(0.28 0.03 210);
+  --sidebar-primary: oklch(0.44 0.11 165);
   --sidebar-primary-foreground: oklch(0.98 0 0);
-  --sidebar-accent: oklch(0.20 0.01 260);
-  --sidebar-accent-foreground: oklch(0.95 0 0);
-  --sidebar-border: oklch(0.24 0.01 260);
-  --sidebar-ring: oklch(0.65 0.18 200);
-}
-
-.dark {
-  --background: oklch(0.13 0.01 260);
-  --foreground: oklch(0.95 0 0);
-  --card: oklch(0.16 0.01 260);
-  --card-foreground: oklch(0.95 0 0);
-  --popover: oklch(0.16 0.01 260);
-  --popover-foreground: oklch(0.95 0 0);
-  --primary: oklch(0.65 0.18 200);
-  --primary-foreground: oklch(0.98 0 0);
-  --secondary: oklch(0.22 0.01 260);
-  --secondary-foreground: oklch(0.85 0 0);
-  --muted: oklch(0.22 0.01 260);
-  --muted-foreground: oklch(0.65 0 0);
-  --accent: oklch(0.25 0.02 260);
-  --accent-foreground: oklch(0.95 0 0);
-  --destructive: oklch(0.55 0.22 25);
-  --destructive-foreground: oklch(0.98 0 0);
-  --border: oklch(0.28 0.01 260);
-  --input: oklch(0.22 0.01 260);
-  --ring: oklch(0.65 0.18 200);
-  --chart-1: oklch(0.65 0.18 200);
-  --chart-2: oklch(0.70 0.16 150);
-  --chart-3: oklch(0.75 0.18 65);
-  --chart-4: oklch(0.55 0.22 25);
-  --chart-5: oklch(0.60 0.15 280);
-  --sidebar: oklch(0.11 0.01 260);
-  --sidebar-foreground: oklch(0.85 0 0);
-  --sidebar-primary: oklch(0.65 0.18 200);
-  --sidebar-primary-foreground: oklch(0.98 0 0);
-  --sidebar-accent: oklch(0.20 0.01 260);
-  --sidebar-accent-foreground: oklch(0.95 0 0);
-  --sidebar-border: oklch(0.24 0.01 260);
-  --sidebar-ring: oklch(0.65 0.18 200);
+  --sidebar-accent: oklch(0.95 0.02 155);
+  --sidebar-accent-foreground: oklch(0.22 0.03 210);
+  --sidebar-border: oklch(0.91 0.006 155);
+  --sidebar-ring: oklch(0.44 0.11 165);
 }
 
 @theme inline {
@@ -106,6 +74,7 @@
   --color-ring: var(--ring);
   --color-critical: var(--critical);
   --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
   --color-success: var(--success);
   --color-info: var(--info);
   --color-chart-1: var(--chart-1);

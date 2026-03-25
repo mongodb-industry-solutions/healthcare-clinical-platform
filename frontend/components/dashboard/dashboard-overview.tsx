@@ -218,7 +218,7 @@ function StatsCard({
           {trend && (
             <span className={cn(
               "flex items-center text-xs",
-              trend === "up" ? "text-destructive" : "text-green-500"
+              trend === "up" ? "text-destructive" : "text-success"
             )}>
               {trend === "up" ? <TrendingUp className="h-3 w-3 mr-0.5" /> : <TrendingDown className="h-3 w-3 mr-0.5" />}
             </span>

@@ -89,13 +89,18 @@ async def materialize_patient(
 async def list_patient_360(
     hospital: Optional[str] = Query(default=None, description="Filter by source hospital key"),
     profile_type: Optional[str] = Query(default=None, description="Filter by profile type"),
+    sort_by: str = Query(
+        default="alert_severity",
+        description="Sort field: alert_severity, name, hospital",
+    ),
     limit: int = Query(default=50, ge=1, le=500),
     skip: int = Query(default=0, ge=0),
     svc: MaterializerService = Depends(get_materializer_service),
 ) -> list[dict[str, Any]]:
     """Return paginated Patient 360 documents (read from patient_360 collection)."""
     return svc.list_patient_360(
-        skip=skip, limit=limit, hospital=hospital, profile_type=profile_type,
+        skip=skip, limit=limit, hospital=hospital,
+        profile_type=profile_type, sort_by=sort_by,
     )
 
 
