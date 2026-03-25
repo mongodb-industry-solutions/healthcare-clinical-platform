@@ -199,6 +199,72 @@ class VitalsSimulator:
         return readings
 
     # ------------------------------------------------------------------
+    # Incremental single-reading generation (for live SSE ticks)
+    # ------------------------------------------------------------------
+
+    def generate_next_reading(
+        self,
+        patient_id: str,
+        last_reading: dict[str, Any],
+        pattern: str = "normal",
+        interval_seconds: int = 5,
+        has_beta_blocker: bool = False,
+        has_ckd: bool = False,
+        has_insulin: bool = False,
+    ) -> dict[str, Any]:
+        """
+        Generate ONE new vitals reading by advancing from ``last_reading``.
+
+        Drift and noise are scaled to *interval_seconds* so that the rate
+        of change matches the per-hour drift constants regardless of tick
+        frequency.
+        """
+        is_sepsis = pattern == "acute" and has_ckd
+
+        if is_sepsis:
+            drift_map = _SEPSIS_DRIFT
+        elif pattern == "deteriorating":
+            drift_map = _DETERIORATING_DRIFT
+        elif pattern == "acute":
+            drift_map = _ACUTE_DRIFT
+        else:
+            drift_map = {k: (0.0, 1.0) for k in _BASELINES}
+
+        hours_fraction = interval_seconds / 3600.0
+
+        new: dict[str, Any] = {
+            "timestamp":  datetime.now(timezone.utc),
+            "patient_id": patient_id,
+            "device_id":  last_reading.get("device_id", f"PATCH-{self.rng.randint(10000, 99999)}"),
+            "pattern":    pattern,
+            "event":      "sepsis" if is_sepsis else None,
+        }
+
+        for vital, params in _BASELINES.items():
+            prev_val = float(last_reading.get(vital, params["mean"]))
+            drift_per_hour, std_mult = drift_map.get(vital, (0.0, 1.0))
+
+            drift = drift_per_hour * hours_fraction
+            noise = float(self.np_rng.normal(0.0, params["std"] * std_mult * 0.3))
+
+            raw = prev_val + drift + noise
+
+            raw = max(params["min"], min(params["max"], raw))
+
+            precision = 2 if vital == "temperature" else 1
+            new[vital] = round(raw, precision)
+
+        if has_insulin and pattern != "acute" and self.rng.random() < 0.02:
+            new["heart_rate"] = min(
+                round(new["heart_rate"] + self.rng.uniform(15.0, 25.0), 1),
+                _BASELINES["heart_rate"]["max"],
+            )
+            new["activity_level"] = round(new["activity_level"] * 0.3, 2)
+            new["event"] = "hypoglycemia"
+
+        return new
+
+    # ------------------------------------------------------------------
     # Series builders
     # ------------------------------------------------------------------
 

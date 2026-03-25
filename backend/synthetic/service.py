@@ -146,6 +146,80 @@ class SyntheticService:
             pattern=pattern,
         )
 
+    ######## Live tick (SSE streaming) ########
+
+    def tick_patients(
+        self,
+        patient_ids: list[str],
+        pattern: str,
+        interval_seconds: int,
+        materializer_repo: Any,
+        cds_service: Any,
+    ) -> list[dict[str, Any]]:
+        """
+        Generate one new vitals reading per patient, persist it,
+        patch patient_360.vitals_summary.latest, and run CDS evaluation.
+
+        Returns the list of new readings (one per patient).
+        """
+        from pymongo import DESCENDING
+
+        simulator = VitalsSimulator()
+        new_readings: list[dict[str, Any]] = []
+
+        for pid in patient_ids:
+            patient_meta = self._repo.find_patient_meta(pid)
+            if not patient_meta:
+                continue
+
+            meta = patient_meta.get("meta", {})
+            has_beta_blocker = meta.get("has_beta_blocker", False)
+            has_ckd = "433144002" in meta.get("condition_codes", [])
+            has_insulin = meta.get("has_insulin", False)
+
+            last_docs = (
+                self._repo._db.get_collection("synthetic_vitals")
+                .find({"patient_id": pid}, {"_id": 0})
+                .sort("timestamp", DESCENDING)
+                .limit(1)
+            )
+            last_list = list(last_docs)
+            last_reading = last_list[0] if last_list else {}
+
+            reading = simulator.generate_next_reading(
+                patient_id=pid,
+                last_reading=last_reading,
+                pattern=pattern,
+                interval_seconds=interval_seconds,
+                has_beta_blocker=has_beta_blocker,
+                has_ckd=has_ckd,
+                has_insulin=has_insulin,
+            )
+
+            self._repo._db.get_collection("synthetic_vitals").insert_one(reading)
+
+            latest_snapshot = {
+                "heart_rate": reading["heart_rate"],
+                "respiratory_rate": reading["respiratory_rate"],
+                "temperature": reading["temperature"],
+                "spo2": reading["spo2"],
+                "activity_level": reading["activity_level"],
+            }
+            materializer_repo.patch_vitals_latest(pid, latest_snapshot)
+
+            try:
+                cds_service.evaluate_patient(pid)
+            except Exception:
+                logger.warning("CDS evaluation failed for %s during tick", pid)
+
+            serializable = {**reading}
+            if isinstance(serializable.get("timestamp"), datetime):
+                serializable["timestamp"] = serializable["timestamp"].isoformat()
+            serializable.pop("_id", None)
+            new_readings.append(serializable)
+
+        return new_readings
+
    ######## Status / admin ########
 
     def get_status(self) -> StatusResponse:

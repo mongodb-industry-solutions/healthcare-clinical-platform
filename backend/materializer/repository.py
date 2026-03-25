@@ -172,6 +172,26 @@ class MaterializerRepository:
             return [("source_hospital", 1)]
         return [("updated_at", -1)]
 
+    def patch_vitals_latest(
+        self, patient_id: str, latest: dict[str, Any],
+    ) -> None:
+        """
+        Lightweight update: set only vitals_summary.latest and updated_at
+        on an existing patient_360 document.  No full rematerialization.
+        """
+        from datetime import datetime, timezone
+
+        self._db.get_collection(PATIENT_360_COLLECTION).update_one(
+            {"patient_id": patient_id},
+            {
+                "$set": {
+                    "vitals_summary.latest": latest,
+                    "vitals_summary.refreshed_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                },
+            },
+        )
+
     def count_patient_360(self) -> int:
         """Count patient_360 documents."""
         return self._db.get_collection(PATIENT_360_COLLECTION).count_documents({})
