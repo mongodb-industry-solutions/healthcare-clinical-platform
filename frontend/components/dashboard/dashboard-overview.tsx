@@ -166,38 +166,40 @@ export function DashboardOverview() {
         />
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-5">
-        <Card className="lg:col-span-3">
+      <div className="grid gap-6 lg:grid-cols-3">
+        {/* Column 1 — Next Actions */}
+        <Card className="flex flex-col">
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-base font-medium">
               <ListChecks className="h-4 w-4 text-primary" />
               Next Actions
             </CardTitle>
-            <CardDescription>
-              Top actions ranked by alert severity, overdue gaps, and worsening vitals
-            </CardDescription>
+            <CardDescription>Ranked by urgency</CardDescription>
           </CardHeader>
-          <CardContent className="max-h-[280px] overflow-y-auto">
+          <CardContent className="flex-1 overflow-y-auto">
             {nextActions.length === 0 ? (
-              <p className="py-8 text-center text-sm text-muted-foreground">
+              <p className="py-6 text-center text-sm text-muted-foreground">
                 No urgent actions right now.
               </p>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {nextActions.slice(0, 5).map((action, idx) => (
                   <Link
                     key={action.patient.patient_id}
                     href={`/patients/${action.patient.patient_id}`}
-                    className="flex items-start gap-3 rounded-lg border border-border p-3 transition-colors hover:bg-accent/50"
+                    className="flex items-center gap-2.5 rounded-md border border-border p-2 transition-colors hover:bg-accent/50"
                   >
-                    <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-semibold text-primary">
                       {idx + 1}
-                    </div>
+                    </span>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">{action.title}</p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">{action.detail}</p>
+                      <p className="truncate text-xs text-muted-foreground">{action.detail}</p>
                     </div>
-                    <Badge variant={action.score >= 130 ? "destructive" : "secondary"}>
+                    <Badge
+                      variant={action.score >= 130 ? "destructive" : "secondary"}
+                      className="shrink-0 text-[10px]"
+                    >
                       {action.score >= 130 ? "urgent" : "priority"}
                     </Badge>
                   </Link>
@@ -207,58 +209,12 @@ export function DashboardOverview() {
           </CardContent>
         </Card>
 
-        <Card className="lg:col-span-2">
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-base font-medium">
-              <Clock3 className="h-4 w-4 text-primary" />
-              Recent Activity
-            </CardTitle>
-            <CardDescription>
-              Latest alert and care-gap events across the population
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="max-h-[280px] overflow-y-auto">
-            {recentActivity.length === 0 ? (
-              <p className="py-8 text-center text-sm text-muted-foreground">
-                No recent events.
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {recentActivity.slice(0, 8).map((event) => (
-                  <Link
-                    key={event.id}
-                    href={event.href}
-                    className="block rounded-md border border-border p-2.5 transition-colors hover:bg-accent/50"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="truncate text-sm font-medium">{event.title}</p>
-                      <Badge
-                        variant={event.severity === "critical" ? "destructive" : "outline"}
-                        className={cn(
-                          event.severity === "high" && "border-warning/60 text-warning",
-                        )}
-                      >
-                        {event.severity}
-                      </Badge>
-                    </div>
-                    <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{event.detail}</p>
-                    <p className="mt-1 text-[11px] text-muted-foreground">{formatRelativeTime(event.timestamp)}</p>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-5">
-        <Card className="lg:col-span-3">
+        {/* Column 2 — Patients Requiring Attention */}
+        <Card className="flex flex-col">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <div>
               <CardTitle className="text-base font-medium">Patients Requiring Attention</CardTitle>
-              <CardDescription>
-                Patients with active critical or high severity alerts
-              </CardDescription>
+              <CardDescription>Critical &amp; high severity alerts</CardDescription>
             </div>
             <Button variant="ghost" size="sm" asChild>
               <Link href="/patients" className="gap-1">
@@ -267,72 +223,99 @@ export function DashboardOverview() {
               </Link>
             </Button>
           </CardHeader>
-          <CardContent className="max-h-[280px] overflow-y-auto">
-            <div className="space-y-3">
-              {criticalPatients.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-8 text-center">
-                  No critical patients at this time
+          <CardContent className="flex-1 overflow-y-auto">
+            {criticalPatients.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-6 text-center">
+                No critical patients at this time
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {criticalPatients.map((patient) => (
+                  <PatientAlertRow key={patient.patient_id} patient={patient} />
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Column 3 — Recent Activity + Hospital Distribution stacked */}
+        <div className="flex flex-col gap-6">
+          <Card className="flex flex-col flex-1">
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2 text-base font-medium">
+                  <Clock3 className="h-4 w-4 text-primary" />
+                  Recent Activity
+                </CardTitle>
+                <Button variant="ghost" size="sm" asChild>
+                  <Link href="/alerts" className="gap-1 text-xs">
+                    View all
+                    <ArrowRight className="h-3 w-3" />
+                  </Link>
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="flex-1 overflow-y-auto max-h-[180px]">
+              {recentActivity.length === 0 ? (
+                <p className="py-4 text-center text-sm text-muted-foreground">
+                  No recent events.
                 </p>
               ) : (
-                criticalPatients.map((patient) => (
-                  <PatientAlertRow key={patient.patient_id} patient={patient} />
-                ))
+                <div className="space-y-1.5">
+                  {recentActivity.slice(0, 5).map((event) => (
+                    <Link
+                      key={event.id}
+                      href={event.href}
+                      className="flex items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-accent/50"
+                    >
+                      <Badge
+                        variant={event.severity === "critical" ? "destructive" : "outline"}
+                        className={cn(
+                          "shrink-0 text-[10px] px-1.5",
+                          event.severity === "high" && "border-warning/60 text-warning",
+                        )}
+                      >
+                        {event.severity.slice(0, 4)}
+                      </Badge>
+                      <p className="truncate text-sm">{event.title}</p>
+                      <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">
+                        {formatRelativeTime(event.timestamp)}
+                      </span>
+                    </Link>
+                  ))}
+                </div>
               )}
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
-        <Card className="lg:col-span-2">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base font-medium">Hospital Distribution</CardTitle>
-            <CardDescription>
-              Patients by source hospital system
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="max-h-[280px] overflow-y-auto">
-            <div className="space-y-4">
-              <HospitalBar 
-                name="St. Mary's Medical Center" 
-                count={hospitalBreakdown.st_marys}
-                total={totalPatients}
-                color="bg-chart-1"
-              />
-              <HospitalBar 
-                name="Regional General Hospital" 
-                count={hospitalBreakdown.regional_general}
-                total={totalPatients}
-                color="bg-chart-2"
-              />
-              <HospitalBar 
-                name="Community Health Partners" 
-                count={hospitalBreakdown.community_health}
-                total={totalPatients}
-                color="bg-chart-3"
-              />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-3">
-        <QuickLinkCard
-          title="Population View"
-          description="Browse all monitored patients with vitals and risk indicators"
-          href="/patients"
-          icon={Users}
-        />
-        <QuickLinkCard
-          title="Compare Patients"
-          description="Side-by-side comparison showing context-aware alerting"
-          href="/compare"
-          icon={Activity}
-        />
-        <QuickLinkCard
-          title="Care Gap Analysis"
-          description="HEDIS measures and overdue preventive care"
-          href="/care-gaps"
-          icon={ClipboardList}
-        />
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base font-medium">Hospital Distribution</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                <HospitalBar
+                  name="St. Mary's Medical Center"
+                  count={hospitalBreakdown.st_marys}
+                  total={totalPatients}
+                  color="bg-chart-1"
+                />
+                <HospitalBar
+                  name="Regional General Hospital"
+                  count={hospitalBreakdown.regional_general}
+                  total={totalPatients}
+                  color="bg-chart-2"
+                />
+                <HospitalBar
+                  name="Community Health Partners"
+                  count={hospitalBreakdown.community_health}
+                  total={totalPatients}
+                  color="bg-chart-3"
+                />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   )
@@ -457,28 +440,6 @@ function HospitalBar({ name, count, total, color }: {
   )
 }
 
-function QuickLinkCard({ title, description, href, icon: Icon }: {
-  title: string; description: string; href: string
-  icon: React.ComponentType<{ className?: string }>
-}) {
-  return (
-    <Link href={href}>
-      <Card className="h-full transition-colors hover:bg-accent/50">
-        <CardHeader className="pb-2">
-          <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
-              <Icon className="h-4 w-4 text-primary" />
-            </div>
-            <CardTitle className="text-base font-medium">{title}</CardTitle>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">{description}</p>
-        </CardContent>
-      </Card>
-    </Link>
-  )
-}
 
 function rankNextActions(patients: Patient360[]): ActionItem[] {
   return patients

@@ -5,9 +5,9 @@ import Link from "next/link"
 import {
   AlertTriangle,
   ArrowLeft,
+  ChevronRight,
   Heart,
   Loader2,
-  MessageSquareText,
   Pill,
   Plus,
   Stethoscope,
@@ -129,60 +129,80 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
 
   return (
     <div className="flex flex-col gap-6 p-6">
-      {/* ---- Header ---- */}
-      <div className="flex items-center gap-4">
+      {/* ---- Patient banner ---- */}
+      <div className="flex items-center gap-3">
         <Button variant="ghost" size="icon" asChild>
           <Link href="/patients">
             <ArrowLeft className="h-4 w-4" />
             <span className="sr-only">Back to patients</span>
           </Link>
         </Button>
-        <div className="flex-1">
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-semibold">{demographics.name}</h1>
-            <Badge variant="outline" className="text-sm">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-semibold">
+          {demographics.given[0]}{demographics.family[0]}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-semibold truncate">{demographics.name}</h1>
+            <Badge variant="outline" className="text-xs shrink-0">
               {demographics.age}y {demographics.gender === "female" ? "F" : "M"}
             </Badge>
             <ProfileBadge profile={patient.profile_type} />
           </div>
-          <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
-            <span>MRN: {patient.mrn}</span>
-            <span className="hidden sm:inline">{patient.hospital_name}</span>
+          <p className="text-xs text-muted-foreground">
+            MRN: {patient.mrn}
+            <span className="mx-1.5">·</span>
+            {patient.hospital_name}
             {detailData.time_since_last_alert && (
-              <span>Last alert: {detailData.time_since_last_alert}</span>
+              <>
+                <span className="mx-1.5">·</span>
+                Last alert: {detailData.time_since_last_alert}
+              </>
             )}
-          </div>
+          </p>
         </div>
       </div>
 
-      {/* ---- Clinical narrative summary ---- */}
-      <Card className="border-primary/20 bg-primary/5">
-        <CardContent className="p-4">
-          <div className="flex items-start gap-3">
-            <MessageSquareText className="h-5 w-5 text-primary shrink-0 mt-0.5" />
-            <div>
-              <p className="text-sm font-medium text-primary mb-1">Clinical Summary</p>
-              <p className="text-sm text-foreground leading-relaxed">{narrative}</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      {/* ---- Summary + Alerts: side by side ---- */}
+      <div className="grid gap-4 lg:grid-cols-5">
+        <Card className="lg:col-span-3">
+          <CardHeader className="pb-1.5">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Clinical Summary</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm leading-relaxed">{narrative}</p>
+          </CardContent>
+        </Card>
 
-      {/* ---- Active alert banners ---- */}
-      {active_alerts.length > 0 && (
-        <div className="space-y-2">
-          {active_alerts
-            .filter((a) => a.severity === "critical")
-            .map((alert) => (
-              <AlertBanner key={alert.alert_id} alert={alert} />
-            ))}
-          {active_alerts
-            .filter((a) => a.severity === "high")
-            .map((alert) => (
-              <AlertBanner key={alert.alert_id} alert={alert} />
-            ))}
-        </div>
-      )}
+        <Card className={cn(
+          "lg:col-span-2",
+          active_alerts.some((a) => a.severity === "critical") && "border-destructive/30",
+        )}>
+          <CardHeader className="pb-1.5">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Active Alerts</CardTitle>
+              <div className="flex items-center gap-1.5">
+                {active_alerts.filter((a) => a.severity === "critical").length > 0 && (
+                  <Badge variant="destructive" className="text-[10px] px-1.5 h-5">
+                    {active_alerts.filter((a) => a.severity === "critical").length} critical
+                  </Badge>
+                )}
+                {active_alerts.filter((a) => a.severity === "high").length > 0 && (
+                  <Badge className="text-[10px] px-1.5 h-5 bg-warning text-warning-foreground">
+                    {active_alerts.filter((a) => a.severity === "high").length} high
+                  </Badge>
+                )}
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {active_alerts.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No active alerts</p>
+            ) : (
+              <CompactAlertList alerts={active_alerts} />
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
       {/* ---- Main content grid ---- */}
       <div className="grid gap-6 lg:grid-cols-3">
@@ -696,41 +716,64 @@ function ProfileBadge({ profile }: { profile: string }) {
   )
 }
 
-function AlertBanner({ alert }: { alert: Patient360["active_alerts"][number] }) {
-  const isCritical = alert.severity === "critical"
+function CompactAlertList({ alerts }: { alerts: Patient360["active_alerts"] }) {
+  const [expandedId, setExpandedId] = React.useState<string | null>(null)
+
+  const sorted = [...alerts].sort((a, b) => {
+    const order = { critical: 0, high: 1, medium: 2, low: 3 }
+    return (order[a.severity] ?? 4) - (order[b.severity] ?? 4)
+  })
+
   return (
-    <div
-      className={cn(
-        "flex items-start gap-3 rounded-lg border p-4",
-        isCritical ? "border-destructive/50 bg-destructive/10" : "border-warning/50 bg-warning/10",
-      )}
-    >
-      <AlertTriangle
-        className={cn("h-5 w-5 shrink-0 mt-0.5", isCritical ? "text-destructive" : "text-warning")}
-      />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className={cn("font-medium", isCritical ? "text-destructive" : "text-warning")}>
-            {alert.title}
-          </span>
-          <Badge
-            variant={isCritical ? "destructive" : "default"}
-            className={cn("text-xs", !isCritical && "bg-warning text-warning-foreground")}
+    <div className="space-y-1">
+      {sorted.map((alert) => {
+        const isCritical = alert.severity === "critical"
+        const isHigh = alert.severity === "high"
+        const isExpanded = expandedId === alert.alert_id
+
+        return (
+          <div
+            key={alert.alert_id}
+            className={cn(
+              "rounded-md border transition-colors",
+              isCritical && "border-destructive/30 bg-destructive/5",
+              isHigh && "border-warning/30 bg-warning/5",
+              !isCritical && !isHigh && "border-border",
+            )}
           >
-            {alert.severity}
-          </Badge>
-        </div>
-        <p className="text-sm text-muted-foreground mt-1">{alert.reasoning}</p>
-        {alert.suggested_actions?.length > 0 && (
-          <div className="flex flex-wrap gap-2 mt-2">
-            {alert.suggested_actions.slice(0, 3).map((action, i) => (
-              <Badge key={i} variant="outline" className="text-xs">
-                {action}
-              </Badge>
-            ))}
+            <button
+              onClick={() => setExpandedId(isExpanded ? null : alert.alert_id)}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left"
+            >
+              <span className={cn(
+                "h-2 w-2 shrink-0 rounded-full",
+                isCritical && "bg-destructive",
+                isHigh && "bg-warning",
+                !isCritical && !isHigh && "bg-muted-foreground",
+              )} />
+              <span className="flex-1 truncate text-sm font-medium">{alert.title}</span>
+              <ChevronRight className={cn(
+                "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
+                isExpanded && "rotate-90",
+              )} />
+            </button>
+            {isExpanded && (
+              <div className="px-3 pb-2.5 pl-7">
+                <p className="text-xs text-muted-foreground leading-relaxed">{alert.reasoning}</p>
+                {alert.suggested_actions?.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {alert.suggested_actions.slice(0, 3).map((action, i) => (
+                      <Badge key={i} variant="outline" className="text-[10px]">
+                        {action}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        )
+      })}
     </div>
   )
 }
