@@ -257,7 +257,7 @@ function ComparisonCard({ patient }: { patient: Patient360 }) {
                   <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
                   <div>
                     <div className="font-medium">{alert.title}</div>
-                    <div className="text-xs opacity-80 mt-0.5 line-clamp-2">{alert.reasoning.split(".")[0]}.</div>
+                    <div className="text-xs opacity-80 mt-0.5 line-clamp-2">{alert.reasoning?.split(".")[0] ?? ""}.</div>
                   </div>
                 </div>
               ))}
