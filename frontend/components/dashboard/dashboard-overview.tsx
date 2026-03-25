@@ -177,7 +177,7 @@ export function DashboardOverview() {
               Top actions ranked by alert severity, overdue gaps, and worsening vitals
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="max-h-[280px] overflow-y-auto">
             {nextActions.length === 0 ? (
               <p className="py-8 text-center text-sm text-muted-foreground">
                 No urgent actions right now.
@@ -217,7 +217,7 @@ export function DashboardOverview() {
               Latest alert and care-gap events across the population
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="max-h-[280px] overflow-y-auto">
             {recentActivity.length === 0 ? (
               <p className="py-8 text-center text-sm text-muted-foreground">
                 No recent events.
@@ -267,7 +267,7 @@ export function DashboardOverview() {
               </Link>
             </Button>
           </CardHeader>
-          <CardContent>
+          <CardContent className="max-h-[280px] overflow-y-auto">
             <div className="space-y-3">
               {criticalPatients.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-8 text-center">
@@ -289,7 +289,7 @@ export function DashboardOverview() {
               Patients by source hospital system
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="max-h-[280px] overflow-y-auto">
             <div className="space-y-4">
               <HospitalBar 
                 name="St. Mary's Medical Center" 
