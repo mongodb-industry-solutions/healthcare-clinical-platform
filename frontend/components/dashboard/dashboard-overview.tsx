@@ -1,23 +1,63 @@
 "use client"
 
-import { AlertTriangle, Activity, Users, ClipboardList, TrendingUp, TrendingDown, ArrowRight } from "lucide-react"
+import * as React from "react"
+import { AlertTriangle, Activity, Users, ClipboardList, TrendingUp, TrendingDown, ArrowRight, Loader2 } from "lucide-react"
 import Link from "next/link"
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { mockPatients, dashboardStats } from "@/lib/mock-data"
+import { fetchAllPatients } from "@/lib/api"
+import { type Patient360 } from "@/lib/mock-data"
 import { cn } from "@/lib/utils"
 
 export function DashboardOverview() {
-  // Get patients with active critical/high alerts
-  const criticalPatients = mockPatients.filter(
+  const [patients, setPatients] = React.useState<Patient360[]>([])
+  const [loading, setLoading] = React.useState(true)
+  const [error, setError] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    fetchAllPatients({ limit: 500 })
+      .then((data) => { setPatients(data); setError(null) })
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false))
+  }, [])
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-24">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 gap-2">
+        <AlertTriangle className="h-8 w-8 text-destructive" />
+        <p className="text-sm text-muted-foreground">Failed to load dashboard data</p>
+        <p className="text-xs text-destructive">{error}</p>
+      </div>
+    )
+  }
+
+  const criticalPatients = patients.filter(
     (p) => p.active_alerts.some((a) => a.severity === "critical" || a.severity === "high")
   )
 
+  const totalPatients = patients.length
+  const criticalAlerts = patients.reduce((sum, p) => sum + p.active_alerts.filter(a => a.severity === "critical").length, 0)
+  const highAlerts = patients.reduce((sum, p) => sum + p.active_alerts.filter(a => a.severity === "high").length, 0)
+  const openCareGaps = patients.reduce((sum, p) => sum + p.care_gaps.filter(g => g.status === "open").length, 0)
+  const overdueGaps = patients.reduce((sum, p) => sum + p.care_gaps.filter(g => g.days_overdue > 0).length, 0)
+  const hospitalBreakdown = {
+    st_marys: patients.filter(p => p.source_hospital === "st_marys").length,
+    regional_general: patients.filter(p => p.source_hospital === "regional_general").length,
+    community_health: patients.filter(p => p.source_hospital === "community_health").length,
+  }
+
   return (
     <div className="flex flex-col gap-6 p-6">
-      {/* Page Header */}
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
         <p className="text-sm text-muted-foreground">
@@ -25,18 +65,17 @@ export function DashboardOverview() {
         </p>
       </div>
 
-      {/* Stats Grid */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatsCard
           title="Total Patients"
-          value={dashboardStats.totalPatients}
+          value={totalPatients}
           description="Active monitoring"
           icon={Users}
           trend={null}
         />
         <StatsCard
           title="Critical Alerts"
-          value={dashboardStats.criticalAlerts}
+          value={criticalAlerts}
           description="Require immediate attention"
           icon={AlertTriangle}
           trend={null}
@@ -44,7 +83,7 @@ export function DashboardOverview() {
         />
         <StatsCard
           title="High Alerts"
-          value={dashboardStats.highAlerts}
+          value={highAlerts}
           description="Pending review"
           icon={Activity}
           trend={null}
@@ -52,16 +91,14 @@ export function DashboardOverview() {
         />
         <StatsCard
           title="Care Gaps"
-          value={dashboardStats.openCareGaps}
-          description={`${dashboardStats.overdueGaps} overdue`}
+          value={openCareGaps}
+          description={`${overdueGaps} overdue`}
           icon={ClipboardList}
           trend={null}
         />
       </div>
 
-      {/* Two Column Layout */}
       <div className="grid gap-6 lg:grid-cols-5">
-        {/* Critical Patients - Takes more space */}
         <Card className="lg:col-span-3">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <div>
@@ -92,7 +129,6 @@ export function DashboardOverview() {
           </CardContent>
         </Card>
 
-        {/* Hospital Distribution */}
         <Card className="lg:col-span-2">
           <CardHeader className="pb-2">
             <CardTitle className="text-base font-medium">Hospital Distribution</CardTitle>
@@ -104,20 +140,20 @@ export function DashboardOverview() {
             <div className="space-y-4">
               <HospitalBar 
                 name="St. Mary's Medical Center" 
-                count={dashboardStats.hospitalBreakdown.st_marys}
-                total={dashboardStats.totalPatients}
+                count={hospitalBreakdown.st_marys}
+                total={totalPatients}
                 color="bg-chart-1"
               />
               <HospitalBar 
                 name="Regional General Hospital" 
-                count={dashboardStats.hospitalBreakdown.regional_general}
-                total={dashboardStats.totalPatients}
+                count={hospitalBreakdown.regional_general}
+                total={totalPatients}
                 color="bg-chart-2"
               />
               <HospitalBar 
                 name="Community Health Partners" 
-                count={dashboardStats.hospitalBreakdown.community_health}
-                total={dashboardStats.totalPatients}
+                count={hospitalBreakdown.community_health}
+                total={totalPatients}
                 color="bg-chart-3"
               />
             </div>
@@ -125,7 +161,6 @@ export function DashboardOverview() {
         </Card>
       </div>
 
-      {/* Quick Links */}
       <div className="grid gap-4 md:grid-cols-3">
         <QuickLinkCard
           title="Population View"
@@ -151,19 +186,11 @@ export function DashboardOverview() {
 }
 
 function StatsCard({
-  title,
-  value,
-  description,
-  icon: Icon,
-  trend,
-  variant = "default",
+  title, value, description, icon: Icon, trend, variant = "default",
 }: {
-  title: string
-  value: number
-  description: string
+  title: string; value: number; description: string
   icon: React.ComponentType<{ className?: string }>
-  trend: "up" | "down" | null
-  variant?: "default" | "critical" | "warning"
+  trend: "up" | "down" | null; variant?: "default" | "critical" | "warning"
 }) {
   return (
     <Card className={cn(
@@ -171,9 +198,7 @@ function StatsCard({
       variant === "warning" && "border-warning/50 bg-warning/5"
     )}>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">
-          {title}
-        </CardTitle>
+        <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
         <Icon className={cn(
           "h-4 w-4",
           variant === "default" && "text-muted-foreground",
@@ -195,11 +220,7 @@ function StatsCard({
               "flex items-center text-xs",
               trend === "up" ? "text-destructive" : "text-green-500"
             )}>
-              {trend === "up" ? (
-                <TrendingUp className="h-3 w-3 mr-0.5" />
-              ) : (
-                <TrendingDown className="h-3 w-3 mr-0.5" />
-              )}
+              {trend === "up" ? <TrendingUp className="h-3 w-3 mr-0.5" /> : <TrendingDown className="h-3 w-3 mr-0.5" />}
             </span>
           )}
         </div>
@@ -209,7 +230,7 @@ function StatsCard({
   )
 }
 
-function PatientAlertRow({ patient }: { patient: typeof mockPatients[0] }) {
+function PatientAlertRow({ patient }: { patient: Patient360 }) {
   const criticalAlert = patient.active_alerts.find((a) => a.severity === "critical")
   const highAlert = patient.active_alerts.find((a) => a.severity === "high")
   const primaryAlert = criticalAlert || highAlert
@@ -254,18 +275,10 @@ function PatientAlertRow({ patient }: { patient: typeof mockPatients[0] }) {
   )
 }
 
-function HospitalBar({
-  name,
-  count,
-  total,
-  color,
-}: {
-  name: string
-  count: number
-  total: number
-  color: string
+function HospitalBar({ name, count, total, color }: {
+  name: string; count: number; total: number; color: string
 }) {
-  const percentage = Math.round((count / total) * 100)
+  const percentage = total > 0 ? Math.round((count / total) * 100) : 0
 
   return (
     <div className="space-y-1.5">
@@ -274,24 +287,14 @@ function HospitalBar({
         <span className="text-muted-foreground">{count}</span>
       </div>
       <div className="h-2 rounded-full bg-secondary">
-        <div 
-          className={cn("h-full rounded-full", color)}
-          style={{ width: `${percentage}%` }}
-        />
+        <div className={cn("h-full rounded-full", color)} style={{ width: `${percentage}%` }} />
       </div>
     </div>
   )
 }
 
-function QuickLinkCard({
-  title,
-  description,
-  href,
-  icon: Icon,
-}: {
-  title: string
-  description: string
-  href: string
+function QuickLinkCard({ title, description, href, icon: Icon }: {
+  title: string; description: string; href: string
   icon: React.ComponentType<{ className?: string }>
 }) {
   return (

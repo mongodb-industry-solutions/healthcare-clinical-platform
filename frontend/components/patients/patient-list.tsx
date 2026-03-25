@@ -8,15 +8,17 @@ import {
   ChevronRight, 
   Filter, 
   Heart,
+  Loader2,
   Thermometer,
   Wind,
   Activity as ActivityIcon
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { fetchAllPatients } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -33,16 +35,26 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { mockPatients, type Patient360 } from "@/lib/mock-data"
+import { type Patient360 } from "@/lib/mock-data"
 
 type SortField = "name" | "age" | "alerts" | "hospital"
 type SortDirection = "asc" | "desc"
 
 export function PatientList() {
+  const [patients, setPatients] = React.useState<Patient360[]>([])
+  const [loading, setLoading] = React.useState(true)
+  const [error, setError] = React.useState<string | null>(null)
   const [sortField, setSortField] = React.useState<SortField>("alerts")
   const [sortDirection, setSortDirection] = React.useState<SortDirection>("desc")
   const [hospitalFilter, setHospitalFilter] = React.useState<string[]>([])
   const [profileFilter, setProfileFilter] = React.useState<string[]>([])
+
+  React.useEffect(() => {
+    fetchAllPatients({ limit: 500 })
+      .then((data) => { setPatients(data); setError(null) })
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false))
+  }, [])
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -54,22 +66,17 @@ export function PatientList() {
   }
 
   const filteredPatients = React.useMemo(() => {
-    let patients = [...mockPatients]
+    let result = [...patients]
 
-    // Apply hospital filter
     if (hospitalFilter.length > 0) {
-      patients = patients.filter((p) => hospitalFilter.includes(p.source_hospital))
+      result = result.filter((p) => hospitalFilter.includes(p.source_hospital))
     }
-
-    // Apply profile filter
     if (profileFilter.length > 0) {
-      patients = patients.filter((p) => profileFilter.includes(p.profile_type))
+      result = result.filter((p) => profileFilter.includes(p.profile_type))
     }
 
-    // Sort
-    patients.sort((a, b) => {
+    result.sort((a, b) => {
       let comparison = 0
-
       switch (sortField) {
         case "name":
           comparison = a.demographics.name.localeCompare(b.demographics.name)
@@ -77,168 +84,123 @@ export function PatientList() {
         case "age":
           comparison = a.demographics.age - b.demographics.age
           break
-        case "alerts":
-          const aAlerts = a.active_alerts.filter((al) => al.severity === "critical").length * 10 +
-                          a.active_alerts.filter((al) => al.severity === "high").length
-          const bAlerts = b.active_alerts.filter((al) => al.severity === "critical").length * 10 +
-                          b.active_alerts.filter((al) => al.severity === "high").length
-          comparison = aAlerts - bAlerts
+        case "alerts": {
+          const aScore = a.active_alerts.filter((al) => al.severity === "critical").length * 10 +
+                         a.active_alerts.filter((al) => al.severity === "high").length
+          const bScore = b.active_alerts.filter((al) => al.severity === "critical").length * 10 +
+                         b.active_alerts.filter((al) => al.severity === "high").length
+          comparison = aScore - bScore
           break
+        }
         case "hospital":
           comparison = a.hospital_name.localeCompare(b.hospital_name)
           break
       }
-
       return sortDirection === "asc" ? comparison : -comparison
     })
 
-    return patients
-  }, [sortField, sortDirection, hospitalFilter, profileFilter])
+    return result
+  }, [patients, sortField, sortDirection, hospitalFilter, profileFilter])
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-24">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 gap-2">
+        <AlertTriangle className="h-8 w-8 text-destructive" />
+        <p className="text-sm text-muted-foreground">Failed to load patients</p>
+        <p className="text-xs text-destructive">{error}</p>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-6 p-6">
-      {/* Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Population View</h1>
           <p className="text-sm text-muted-foreground">
-            {mockPatients.length} patients actively monitored
+            {patients.length} patients actively monitored
           </p>
         </div>
         
         <div className="flex items-center gap-2">
-          {/* Hospital Filter */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm" className="h-8 gap-2">
                 <Filter className="h-3.5 w-3.5" />
                 Hospital
                 {hospitalFilter.length > 0 && (
-                  <Badge variant="secondary" className="ml-1 h-5 px-1.5">
-                    {hospitalFilter.length}
-                  </Badge>
+                  <Badge variant="secondary" className="ml-1 h-5 px-1.5">{hospitalFilter.length}</Badge>
                 )}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuLabel>Filter by Hospital</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuCheckboxItem
-                checked={hospitalFilter.includes("st_marys")}
-                onCheckedChange={(checked) => {
-                  setHospitalFilter(
-                    checked
-                      ? [...hospitalFilter, "st_marys"]
-                      : hospitalFilter.filter((h) => h !== "st_marys")
-                  )
-                }}
-              >
-                St. Mary's Medical Center
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem
-                checked={hospitalFilter.includes("regional_general")}
-                onCheckedChange={(checked) => {
-                  setHospitalFilter(
-                    checked
-                      ? [...hospitalFilter, "regional_general"]
-                      : hospitalFilter.filter((h) => h !== "regional_general")
-                  )
-                }}
-              >
-                Regional General Hospital
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem
-                checked={hospitalFilter.includes("community_health")}
-                onCheckedChange={(checked) => {
-                  setHospitalFilter(
-                    checked
-                      ? [...hospitalFilter, "community_health"]
-                      : hospitalFilter.filter((h) => h !== "community_health")
-                  )
-                }}
-              >
-                Community Health Partners
-              </DropdownMenuCheckboxItem>
+              {[
+                { id: "st_marys", label: "St. Mary's Medical Center" },
+                { id: "regional_general", label: "Regional General Hospital" },
+                { id: "community_health", label: "Community Health Partners" },
+              ].map((h) => (
+                <DropdownMenuCheckboxItem
+                  key={h.id}
+                  checked={hospitalFilter.includes(h.id)}
+                  onCheckedChange={(checked) => {
+                    setHospitalFilter(checked
+                      ? [...hospitalFilter, h.id]
+                      : hospitalFilter.filter((x) => x !== h.id))
+                  }}
+                >
+                  {h.label}
+                </DropdownMenuCheckboxItem>
+              ))}
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* Profile Filter */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm" className="h-8 gap-2">
                 <Filter className="h-3.5 w-3.5" />
                 Risk Profile
                 {profileFilter.length > 0 && (
-                  <Badge variant="secondary" className="ml-1 h-5 px-1.5">
-                    {profileFilter.length}
-                  </Badge>
+                  <Badge variant="secondary" className="ml-1 h-5 px-1.5">{profileFilter.length}</Badge>
                 )}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
               <DropdownMenuLabel>Filter by Profile</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuCheckboxItem
-                checked={profileFilter.includes("target")}
-                onCheckedChange={(checked) => {
-                  setProfileFilter(
-                    checked
-                      ? [...profileFilter, "target"]
-                      : profileFilter.filter((p) => p !== "target")
-                  )
-                }}
-              >
-                Target (High Risk)
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem
-                checked={profileFilter.includes("diabetic")}
-                onCheckedChange={(checked) => {
-                  setProfileFilter(
-                    checked
-                      ? [...profileFilter, "diabetic"]
-                      : profileFilter.filter((p) => p !== "diabetic")
-                  )
-                }}
-              >
-                Diabetic
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem
-                checked={profileFilter.includes("cardiac")}
-                onCheckedChange={(checked) => {
-                  setProfileFilter(
-                    checked
-                      ? [...profileFilter, "cardiac"]
-                      : profileFilter.filter((p) => p !== "cardiac")
-                  )
-                }}
-              >
-                Cardiac
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem
-                checked={profileFilter.includes("healthy")}
-                onCheckedChange={(checked) => {
-                  setProfileFilter(
-                    checked
-                      ? [...profileFilter, "healthy"]
-                      : profileFilter.filter((p) => p !== "healthy")
-                  )
-                }}
-              >
-                Healthy
-              </DropdownMenuCheckboxItem>
+              {[
+                { id: "target", label: "Target (High Risk)" },
+                { id: "diabetic", label: "Diabetic" },
+                { id: "cardiac", label: "Cardiac" },
+                { id: "healthy", label: "Healthy" },
+              ].map((p) => (
+                <DropdownMenuCheckboxItem
+                  key={p.id}
+                  checked={profileFilter.includes(p.id)}
+                  onCheckedChange={(checked) => {
+                    setProfileFilter(checked
+                      ? [...profileFilter, p.id]
+                      : profileFilter.filter((x) => x !== p.id))
+                  }}
+                >
+                  {p.label}
+                </DropdownMenuCheckboxItem>
+              ))}
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* Clear Filters */}
           {(hospitalFilter.length > 0 || profileFilter.length > 0) && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8"
-              onClick={() => {
-                setHospitalFilter([])
-                setProfileFilter([])
-              }}
+            <Button variant="ghost" size="sm" className="h-8"
+              onClick={() => { setHospitalFilter([]); setProfileFilter([]) }}
             >
               Clear filters
             </Button>
@@ -246,56 +208,31 @@ export function PatientList() {
         </div>
       </div>
 
-      {/* Patient Table */}
       <Card>
         <CardContent className="p-0">
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
                 <TableHead className="w-[250px]">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="-ml-3 h-8 gap-1"
-                    onClick={() => handleSort("name")}
-                  >
-                    Patient
-                    <ArrowUpDown className="h-3.5 w-3.5" />
+                  <Button variant="ghost" size="sm" className="-ml-3 h-8 gap-1" onClick={() => handleSort("name")}>
+                    Patient <ArrowUpDown className="h-3.5 w-3.5" />
                   </Button>
                 </TableHead>
                 <TableHead className="w-[100px]">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="-ml-3 h-8 gap-1"
-                    onClick={() => handleSort("age")}
-                  >
-                    Age
-                    <ArrowUpDown className="h-3.5 w-3.5" />
+                  <Button variant="ghost" size="sm" className="-ml-3 h-8 gap-1" onClick={() => handleSort("age")}>
+                    Age <ArrowUpDown className="h-3.5 w-3.5" />
                   </Button>
                 </TableHead>
                 <TableHead className="hidden md:table-cell">Conditions</TableHead>
                 <TableHead>Latest Vitals</TableHead>
                 <TableHead className="w-[120px]">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="-ml-3 h-8 gap-1"
-                    onClick={() => handleSort("alerts")}
-                  >
-                    Alerts
-                    <ArrowUpDown className="h-3.5 w-3.5" />
+                  <Button variant="ghost" size="sm" className="-ml-3 h-8 gap-1" onClick={() => handleSort("alerts")}>
+                    Alerts <ArrowUpDown className="h-3.5 w-3.5" />
                   </Button>
                 </TableHead>
                 <TableHead className="hidden lg:table-cell">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="-ml-3 h-8 gap-1"
-                    onClick={() => handleSort("hospital")}
-                  >
-                    Hospital
-                    <ArrowUpDown className="h-3.5 w-3.5" />
+                  <Button variant="ghost" size="sm" className="-ml-3 h-8 gap-1" onClick={() => handleSort("hospital")}>
+                    Hospital <ArrowUpDown className="h-3.5 w-3.5" />
                   </Button>
                 </TableHead>
                 <TableHead className="w-[50px]"></TableHead>
@@ -316,21 +253,20 @@ export function PatientList() {
 function PatientRow({ patient }: { patient: Patient360 }) {
   const criticalCount = patient.active_alerts.filter((a) => a.severity === "critical").length
   const highCount = patient.active_alerts.filter((a) => a.severity === "high").length
-  const vitals = patient.vitals_summary.latest
+  const vitals = patient.vitals_summary?.latest
   const thresholds = patient.personalized_thresholds
 
-  // Check if vitals are outside thresholds
-  const hrStatus = getVitalStatus(vitals.heart_rate, thresholds.heart_rate.low, thresholds.heart_rate.high)
-  const spo2Status = getVitalStatus(vitals.spo2, thresholds.spo2.low, thresholds.spo2.high)
-  const tempStatus = getVitalStatus(vitals.temperature, thresholds.temperature.low, thresholds.temperature.high)
-  const rrStatus = getVitalStatus(vitals.respiratory_rate, thresholds.respiratory_rate.low, thresholds.respiratory_rate.high)
+  const hrStatus = vitals && thresholds ? getVitalStatus(vitals.heart_rate, thresholds.heart_rate.low, thresholds.heart_rate.high) : "normal"
+  const spo2Status = vitals && thresholds ? getVitalStatus(vitals.spo2, thresholds.spo2.low, thresholds.spo2.high) : "normal"
+  const tempStatus = vitals && thresholds ? getVitalStatus(vitals.temperature, thresholds.temperature.low, thresholds.temperature.high) : "normal"
+  const rrStatus = vitals && thresholds ? getVitalStatus(vitals.respiratory_rate, thresholds.respiratory_rate.low, thresholds.respiratory_rate.high) : "normal"
 
   return (
     <TableRow className="group">
       <TableCell>
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium">
-            {patient.demographics.given[0]}{patient.demographics.family[0]}
+            {patient.demographics.given?.[0]}{patient.demographics.family?.[0]}
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
@@ -356,61 +292,36 @@ function PatientRow({ patient }: { patient: Patient360 }) {
             </Badge>
           ))}
           {patient.conditions.length > 2 && (
-            <Badge variant="outline" className="text-xs">
-              +{patient.conditions.length - 2}
-            </Badge>
+            <Badge variant="outline" className="text-xs">+{patient.conditions.length - 2}</Badge>
           )}
         </div>
       </TableCell>
 
       <TableCell>
-        <div className="flex items-center gap-3 text-xs">
-          <VitalIndicator 
-            icon={Heart} 
-            value={`${Math.round(vitals.heart_rate)}`}
-            unit="bpm"
-            status={hrStatus}
-          />
-          <VitalIndicator 
-            icon={ActivityIcon} 
-            value={`${vitals.spo2.toFixed(1)}`}
-            unit="%"
-            status={spo2Status}
-          />
-          <VitalIndicator 
-            icon={Thermometer} 
-            value={`${vitals.temperature.toFixed(1)}`}
-            unit="°C"
-            status={tempStatus}
-            className="hidden sm:flex"
-          />
-          <VitalIndicator 
-            icon={Wind} 
-            value={`${Math.round(vitals.respiratory_rate)}`}
-            unit="/m"
-            status={rrStatus}
-            className="hidden sm:flex"
-          />
-        </div>
+        {vitals ? (
+          <div className="flex items-center gap-3 text-xs">
+            <VitalIndicator icon={Heart} value={`${Math.round(vitals.heart_rate)}`} unit="bpm" status={hrStatus} />
+            <VitalIndicator icon={ActivityIcon} value={`${vitals.spo2.toFixed(1)}`} unit="%" status={spo2Status} />
+            <VitalIndicator icon={Thermometer} value={`${vitals.temperature.toFixed(1)}`} unit="°C" status={tempStatus} className="hidden sm:flex" />
+            <VitalIndicator icon={Wind} value={`${Math.round(vitals.respiratory_rate)}`} unit="/m" status={rrStatus} className="hidden sm:flex" />
+          </div>
+        ) : (
+          <span className="text-xs text-muted-foreground">No vitals</span>
+        )}
       </TableCell>
 
       <TableCell>
         <div className="flex items-center gap-1.5">
           {criticalCount > 0 && (
             <Badge variant="destructive" className="gap-1 px-1.5">
-              <AlertTriangle className="h-3 w-3" />
-              {criticalCount}
+              <AlertTriangle className="h-3 w-3" />{criticalCount}
             </Badge>
           )}
           {highCount > 0 && (
-            <Badge className="gap-1 px-1.5 bg-warning text-warning-foreground">
-              {highCount}
-            </Badge>
+            <Badge className="gap-1 px-1.5 bg-warning text-warning-foreground">{highCount}</Badge>
           )}
           {criticalCount === 0 && highCount === 0 && (
-            <Badge variant="outline" className="text-muted-foreground">
-              None
-            </Badge>
+            <Badge variant="outline" className="text-muted-foreground">None</Badge>
           )}
         </div>
       </TableCell>
@@ -434,50 +345,31 @@ function PatientRow({ patient }: { patient: Patient360 }) {
 }
 
 function ProfileBadge({ profile }: { profile: Patient360["profile_type"] }) {
-  const variants: Record<typeof profile, { label: string; className: string }> = {
+  const variants: Record<string, { label: string; className: string }> = {
     target: { label: "High Risk", className: "bg-destructive/10 text-destructive border-destructive/20" },
     diabetic: { label: "Diabetic", className: "bg-warning/10 text-warning border-warning/20" },
     cardiac: { label: "Cardiac", className: "bg-chart-1/10 text-chart-1 border-chart-1/20" },
     healthy: { label: "Healthy", className: "bg-success/10 text-success border-success/20" },
   }
-
-  const { label, className } = variants[profile]
-
-  return (
-    <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0", className)}>
-      {label}
-    </Badge>
-  )
+  const v = variants[profile] || { label: profile, className: "" }
+  return <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0", v.className)}>{v.label}</Badge>
 }
 
-function VitalIndicator({
-  icon: Icon,
-  value,
-  unit,
-  status,
-  className,
-}: {
-  icon: React.ComponentType<{ className?: string }>
-  value: string
-  unit: string
-  status: "normal" | "warning" | "critical"
-  className?: string
+function VitalIndicator({ icon: Icon, value, unit, status, className }: {
+  icon: React.ComponentType<{ className?: string }>; value: string; unit: string
+  status: "normal" | "warning" | "critical"; className?: string
 }) {
   return (
     <div className={cn("flex items-center gap-1", className)}>
-      <Icon className={cn(
-        "h-3 w-3",
+      <Icon className={cn("h-3 w-3",
         status === "normal" && "text-muted-foreground",
         status === "warning" && "text-warning",
         status === "critical" && "text-destructive"
       )} />
-      <span className={cn(
-        "tabular-nums",
+      <span className={cn("tabular-nums",
         status === "warning" && "text-warning",
         status === "critical" && "text-destructive"
-      )}>
-        {value}
-      </span>
+      )}>{value}</span>
       <span className="text-muted-foreground">{unit}</span>
     </div>
   )
@@ -501,6 +393,5 @@ function getConditionShortName(display: string): string {
     "Atrial fibrillation": "A-fib",
     "Chronic obstructive pulmonary disease": "COPD",
   }
-
   return shortNames[display] || display.split(" ").slice(0, 2).join(" ")
 }

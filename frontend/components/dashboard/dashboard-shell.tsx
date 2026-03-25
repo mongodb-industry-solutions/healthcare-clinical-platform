@@ -17,6 +17,7 @@ import {
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { fetchAllPatients } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -48,8 +49,6 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 
 interface DashboardShellProps {
   children: React.ReactNode
-  criticalAlerts?: number
-  highAlerts?: number
 }
 
 const navigation = [
@@ -84,15 +83,26 @@ const hospitals = [
   { id: "community_health", name: "Community Health Partners" },
 ]
 
-export function DashboardShell({ 
-  children, 
-  criticalAlerts = 0,
-  highAlerts = 0,
-}: DashboardShellProps) {
+export function DashboardShell({ children }: DashboardShellProps) {
   const pathname = usePathname()
   const [selectedHospital, setSelectedHospital] = React.useState(hospitals[0])
+  const [totalAlerts, setTotalAlerts] = React.useState(0)
 
-  const totalAlerts = criticalAlerts + highAlerts
+  React.useEffect(() => {
+    fetchAllPatients({ limit: 500 })
+      .then((patients) => {
+        const count = patients.reduce(
+          (sum, p) =>
+            sum +
+            p.active_alerts.filter(
+              (a) => a.severity === "critical" || a.severity === "high",
+            ).length,
+          0,
+        )
+        setTotalAlerts(count)
+      })
+      .catch(() => setTotalAlerts(0))
+  }, [])
 
   return (
     <SidebarProvider>
@@ -184,11 +194,9 @@ export function DashboardShell({
       </Sidebar>
 
       <SidebarInset>
-        {/* Top Header Bar */}
         <header className="sticky top-0 z-10 flex h-14 items-center gap-4 border-b border-border bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60">
           <SidebarTrigger className="-ml-1" />
           
-          {/* Hospital Selector */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm" className="h-8 gap-2">
@@ -211,7 +219,6 @@ export function DashboardShell({
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* Search */}
           <div className="relative ml-auto flex-1 max-w-md">
             <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -221,7 +228,6 @@ export function DashboardShell({
             />
           </div>
 
-          {/* Notifications */}
           <Button variant="ghost" size="icon" className="relative h-8 w-8">
             <Bell className="h-4 w-4" />
             {totalAlerts > 0 && (
@@ -233,7 +239,6 @@ export function DashboardShell({
           </Button>
         </header>
 
-        {/* Main Content */}
         <main className="flex-1 overflow-auto">
           {children}
         </main>
