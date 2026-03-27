@@ -689,6 +689,7 @@ class CDSService:
         flags = p360.get("flags", {})
         condition_codes = flags.get("condition_codes", [])
         labs = p360.get("labs", [])
+        conditions = p360.get("conditions", [])
         vitals_summary = p360.get("vitals_summary", {})
         trend_24h = vitals_summary.get("trend_24h", {})
 
@@ -696,7 +697,6 @@ class CDSService:
         care_gaps: list[dict[str, Any]] = []
 
         for measure in HEDIS_MEASURES:
-            # Check if measure applies to this patient
             applicable_conditions = measure.get("applicable_conditions", [])
             if applicable_conditions:
                 if not any(c in condition_codes for c in applicable_conditions):
@@ -707,13 +707,12 @@ class CDSService:
                 if not all(flags.get(f, False) for f in applicable_flags):
                     continue
 
-            # Statin therapy (SPD) check — age 40-75
             if measure["measure_code"] == "SPD":
                 age = p360.get("demographics", {}).get("age", 0)
                 if age < 40 or age > 75:
                     continue
 
-            # Determine last completion date from labs
+            # Determine last completion date
             last_completed = None
             lab_loinc = measure.get("lab_loinc")
             if lab_loinc:
@@ -723,7 +722,18 @@ class CDSService:
                     if dates:
                         last_completed = max(dates)
 
-            # Compute due date & overdue status
+            # Procedure-based measures (no lab): use most recent encounter
+            # as a proxy — BP is checked every visit, eye referrals are placed
+            if not last_completed and not lab_loinc:
+                encounters = p360.get("encounters", [])
+                enc_dates = []
+                for enc in encounters:
+                    end = enc.get("period_end") or enc.get("period_start")
+                    if end:
+                        enc_dates.append(end)
+                if enc_dates:
+                    last_completed = max(enc_dates)
+
             frequency_days = measure.get("frequency_days", 365)
             due_by = None
             days_overdue = 0
@@ -744,15 +754,23 @@ class CDSService:
                         status = "closed"
                 except (ValueError, TypeError):
                     pass
-
-            if status == "closed":
-                continue  # Only report open gaps
+            else:
+                # No matching lab — derive due date from condition onset
+                due_dt = self._derive_due_date(
+                    applicable_conditions, conditions, frequency_days, now,
+                )
+                due_by = due_dt.strftime("%Y-%m-%d")
+                if now > due_dt:
+                    days_overdue = (now - due_dt).days
 
             # Compute priority — base + vitals trend escalation
             priority = measure.get("priority_base", "moderate")
-            priority = self._escalate_priority(
-                priority, measure["measure_code"], trend_24h, labs,
-            )
+            if status == "open":
+                priority = self._escalate_priority(
+                    priority, measure["measure_code"], trend_24h, labs,
+                )
+                if days_overdue > 90:
+                    priority = self._bump_priority(priority)
 
             care_gaps.append({
                 "hedis_measure": measure["measure_code"],
@@ -766,6 +784,56 @@ class CDSService:
 
         self._repo.update_patient_360_care_gaps(patient_id, care_gaps)
         return care_gaps
+
+    @staticmethod
+    def _derive_due_date(
+        applicable_condition_codes: list[str],
+        conditions: list[dict[str, Any]],
+        frequency_days: int,
+        now: datetime,
+    ) -> datetime:
+        """Derive a realistic due date from condition onset when no lab exists.
+
+        Walks forward from the earliest matching condition onset in
+        frequency-sized steps.  Returns the *next* upcoming cycle boundary,
+        which naturally produces a mix of overdue (past) and due-soon (future)
+        depending on where the patient sits in their screening cycle.
+        """
+        earliest_onset: datetime | None = None
+        for cond in conditions:
+            if cond.get("code") in applicable_condition_codes:
+                onset_raw = cond.get("onset_date")
+                if onset_raw:
+                    try:
+                        onset_dt = datetime.fromisoformat(
+                            onset_raw.replace("Z", "+00:00"),
+                        )
+                        if onset_dt.tzinfo is None:
+                            onset_dt = onset_dt.replace(tzinfo=timezone.utc)
+                        if earliest_onset is None or onset_dt < earliest_onset:
+                            earliest_onset = onset_dt
+                    except (ValueError, TypeError):
+                        pass
+
+        if earliest_onset is None:
+            return now + timedelta(days=30)
+
+        days_since = (now - earliest_onset).days
+        cycles = max(1, days_since // frequency_days)
+        next_due = earliest_onset + timedelta(days=(cycles + 1) * frequency_days)
+        prev_due = earliest_onset + timedelta(days=cycles * frequency_days)
+
+        # If the next cycle is within 60 days, return it (→ "due soon")
+        # Otherwise return the previous cycle (→ "overdue")
+        if (next_due - now).days <= 60:
+            return next_due
+        return prev_due
+
+    @staticmethod
+    def _bump_priority(priority: str) -> str:
+        order = ["low", "moderate", "high", "critical"]
+        idx = order.index(priority) if priority in order else 1
+        return order[min(idx + 1, 3)]
 
     def compute_care_gaps_all(
         self,

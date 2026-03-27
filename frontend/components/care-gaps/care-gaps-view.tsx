@@ -92,18 +92,23 @@ export function CareGapsView() {
     })
   }, [patients])
 
-  const overdueGaps = React.useMemo(
-    () => allGaps.filter((g) => g.gap.days_overdue > 0),
+  const openGaps = React.useMemo(
+    () => allGaps.filter((g) => g.gap.status === "open"),
     [allGaps],
+  )
+
+  const overdueGaps = React.useMemo(
+    () => openGaps.filter((g) => g.gap.days_overdue > 0),
+    [openGaps],
   )
 
   const dueSoonGaps = React.useMemo(
-    () => allGaps.filter((g) => g.gap.days_overdue <= 0 && g.gap.status === "open"),
-    [allGaps],
+    () => openGaps.filter((g) => g.gap.days_overdue <= 0),
+    [openGaps],
   )
 
-  const completedCount = React.useMemo(
-    () => allGaps.filter((g) => g.gap.status === "closed").length,
+  const closedGaps = React.useMemo(
+    () => allGaps.filter((g) => g.gap.status === "closed"),
     [allGaps],
   )
 
@@ -159,18 +164,26 @@ export function CareGapsView() {
       <div className="grid gap-4 md:grid-cols-5">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total Gaps</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Open Gaps</CardTitle>
           </CardHeader>
           <CardContent>
-            <span className="text-3xl font-bold">{allGaps.length}</span>
+            <span className="text-3xl font-bold">{openGaps.length}</span>
+            <p className="text-xs text-muted-foreground mt-1">
+              {allGaps.length} total across {new Set(allGaps.map((g) => g.patient.patient_id)).size} patients
+            </p>
           </CardContent>
         </Card>
-        <Card className="border-destructive/50">
+        <Card className={cn(overdueGaps.length > 0 && "border-destructive/50")}>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Overdue</CardTitle>
           </CardHeader>
           <CardContent>
-            <span className="text-3xl font-bold text-destructive">{overdueGaps.length}</span>
+            <span className={cn("text-3xl font-bold", overdueGaps.length > 0 && "text-destructive")}>{overdueGaps.length}</span>
+            {overdueGaps.length > 0 && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Avg {Math.round(overdueGaps.reduce((s, g) => s + g.gap.days_overdue, 0) / overdueGaps.length)}d overdue
+              </p>
+            )}
           </CardContent>
         </Card>
         <Card>
@@ -181,14 +194,17 @@ export function CareGapsView() {
             <span className="text-3xl font-bold text-warning">{dueSoonGaps.length}</span>
           </CardContent>
         </Card>
-        <Card>
+        <Card className={cn(closedGaps.length > 0 && "border-green-500/30")}>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Patients Affected</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Compliant</CardTitle>
           </CardHeader>
           <CardContent>
-            <span className="text-3xl font-bold">
-              {new Set(allGaps.map((g) => g.patient.patient_id)).size}
+            <span className={cn("text-3xl font-bold", closedGaps.length > 0 && "text-green-600 dark:text-green-400")}>
+              {closedGaps.length}
             </span>
+            <p className="text-xs text-muted-foreground mt-1">
+              Measures met on schedule
+            </p>
           </CardContent>
         </Card>
         <Card className={cn(scheduledCount > 0 && "border-primary/50")}>
@@ -266,7 +282,7 @@ export function CareGapsView() {
       </Card>
 
       {/* ---- Urgency-filtered table ---- */}
-      <Tabs defaultValue="overdue" className="space-y-4">
+      <Tabs defaultValue={overdueGaps.length > 0 ? "overdue" : "all"} className="space-y-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <TabsList>
             <TabsTrigger value="overdue" className="gap-2">
@@ -280,6 +296,12 @@ export function CareGapsView() {
               Due Soon
               <Badge variant="secondary" className="h-5 px-1.5">
                 {dueSoonGaps.length}
+              </Badge>
+            </TabsTrigger>
+            <TabsTrigger value="compliant" className="gap-2">
+              Compliant
+              <Badge variant="outline" className="h-5 px-1.5 border-green-500/50 text-green-600 dark:text-green-400">
+                {closedGaps.length}
               </Badge>
             </TabsTrigger>
             <TabsTrigger value="all" className="gap-2">
@@ -302,6 +324,14 @@ export function CareGapsView() {
         <TabsContent value="due-soon">
           <GapTable
             items={dueSoonGaps}
+            scheduledActions={scheduledActions}
+            onAction={setDialogTarget}
+            gapKeyFn={gapKey}
+          />
+        </TabsContent>
+        <TabsContent value="compliant">
+          <GapTable
+            items={closedGaps}
             scheduledActions={scheduledActions}
             onAction={setDialogTarget}
             gapKeyFn={gapKey}
@@ -343,7 +373,7 @@ export function CareGapsView() {
                 </p>
                 <p>
                   <span className="font-medium">Due:</span>{" "}
-                  {new Date(dialogTarget.item.gap.due_by).toLocaleDateString()}
+                  {formatDueDate(dialogTarget.item.gap.due_by)}
                   {dialogTarget.item.gap.days_overdue > 0 && (
                     <span className="ml-1 text-destructive">
                       ({dialogTarget.item.gap.days_overdue}d overdue)
@@ -453,7 +483,7 @@ function GapTable({
                   <TableCell>
                     <div className="flex items-center gap-1 text-sm">
                       <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                      {new Date(item.gap.due_by).toLocaleDateString()}
+                      {formatDueDate(item.gap.due_by)}
                     </div>
                   </TableCell>
                   <TableCell>
@@ -464,6 +494,11 @@ function GapTable({
                       >
                         <CheckCircle2 className="h-3 w-3" />
                         {action.action === "scheduled" ? "Scheduled" : "Ordered"}
+                      </Badge>
+                    ) : item.gap.status === "closed" ? (
+                      <Badge variant="outline" className="gap-1 border-green-500/40 text-green-600 dark:text-green-400">
+                        <CheckCircle2 className="h-3 w-3" />
+                        Compliant
                       </Badge>
                     ) : item.gap.days_overdue > 0 ? (
                       <Badge variant="destructive" className="gap-1">
@@ -479,6 +514,15 @@ function GapTable({
                   <TableCell className="text-right">
                     {action ? (
                       <span className="text-xs text-muted-foreground">Action taken</span>
+                    ) : item.gap.status === "closed" ? (
+                      <div className="flex items-center justify-end gap-1.5">
+                        <span className="text-xs text-muted-foreground">Up to date</span>
+                        <Button variant="ghost" size="icon" asChild className="h-8 w-8">
+                          <Link href={`/patients/${item.patient.patient_id}`}>
+                            <ChevronRight className="h-4 w-4" />
+                          </Link>
+                        </Button>
+                      </div>
                     ) : (
                       <div className="flex items-center justify-end gap-1.5">
                         <Button
@@ -515,6 +559,17 @@ function GapTable({
       </CardContent>
     </Card>
   )
+}
+
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                            */
+/* ------------------------------------------------------------------ */
+
+function formatDueDate(dueBy: string | null | undefined): string {
+  if (!dueBy) return "Not scheduled"
+  const d = new Date(dueBy)
+  if (isNaN(d.getTime())) return "Not scheduled"
+  return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
 }
 
 /* ------------------------------------------------------------------ */
