@@ -21,6 +21,7 @@ import {
 import { toast } from "sonner"
 
 import { cn } from "@/lib/utils"
+import { useDemo } from "@/lib/demo-context"
 import { fetchAllPatients } from "@/lib/api"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -93,6 +94,7 @@ function applySmartFilter(patients: Patient360[], filter: SmartFilter): Patient3
 }
 
 export function VitalsMonitor() {
+  const { dataVersion } = useDemo()
   const [patients, setPatients] = React.useState<Patient360[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -108,11 +110,12 @@ export function VitalsMonitor() {
   const eventSourceRef = React.useRef<EventSource | null>(null)
 
   React.useEffect(() => {
+    setLoading(true)
     fetchAllPatients({ limit: 500 })
       .then((data) => { setPatients(data); setError(null) })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
-  }, [])
+  }, [dataVersion])
 
   const addToWatchlist = React.useCallback((patientId: string) => {
     setWatchlistIds((prev) => {

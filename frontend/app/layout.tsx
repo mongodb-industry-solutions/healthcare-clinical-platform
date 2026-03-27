@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import { Toaster } from 'sonner'
+import { DemoProvider } from '@/lib/demo-context'
+import { LoginModal } from '@/components/login/login-modal'
 import './globals.css'
 
 const geistSans = Geist({ subsets: ["latin"], variable: "--font-sans" })
@@ -28,8 +30,11 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased min-h-screen bg-background text-foreground`}>
-        {children}
-        <Toaster richColors position="top-right" />
+        <DemoProvider>
+          {children}
+          <LoginModal />
+          <Toaster richColors position="top-right" />
+        </DemoProvider>
       </body>
     </html>
   )

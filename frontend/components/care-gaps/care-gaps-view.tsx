@@ -15,6 +15,7 @@ import {
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { useDemo } from "@/lib/demo-context"
 import { fetchAllPatients } from "@/lib/api"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -58,6 +59,7 @@ const MEASURE_META: Record<string, { name: string; description: string }> = {
 }
 
 export function CareGapsView() {
+  const { dataVersion } = useDemo()
   const [patients, setPatients] = React.useState<Patient360[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -65,6 +67,7 @@ export function CareGapsView() {
   const [dialogTarget, setDialogTarget] = React.useState<{ item: CareGapWithPatient; action: "schedule" | "order" } | null>(null)
 
   React.useEffect(() => {
+    setLoading(true)
     fetchAllPatients({ limit: 500 })
       .then((data) => {
         setPatients(data)
@@ -72,7 +75,7 @@ export function CareGapsView() {
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
-  }, [])
+  }, [dataVersion])
 
   const allGaps: CareGapWithPatient[] = React.useMemo(() => {
     const gaps: CareGapWithPatient[] = []

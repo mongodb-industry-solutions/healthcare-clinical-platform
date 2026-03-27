@@ -17,6 +17,7 @@ import {
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { useDemo } from "@/lib/demo-context"
 import { fetchAllPatients } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import {
@@ -85,6 +86,7 @@ const hospitals = [
 
 export function DashboardShell({ children }: DashboardShellProps) {
   const pathname = usePathname()
+  const { persona, logout, dataVersion } = useDemo()
   const [selectedHospital, setSelectedHospital] = React.useState(hospitals[0])
   const [totalAlerts, setTotalAlerts] = React.useState(0)
 
@@ -102,7 +104,7 @@ export function DashboardShell({ children }: DashboardShellProps) {
         setTotalAlerts(count)
       })
       .catch(() => setTotalAlerts(0))
-  }, [])
+  }, [dataVersion])
 
   return (
     <SidebarProvider>
@@ -169,12 +171,12 @@ export function DashboardShell({ children }: DashboardShellProps) {
                   <SidebarMenuButton size="lg">
                     <Avatar className="h-8 w-8">
                       <AvatarFallback className="bg-primary/10 text-primary text-xs">
-                        DR
+                        {persona?.initials ?? "DR"}
                       </AvatarFallback>
                     </Avatar>
                     <div className="flex flex-col gap-0.5 leading-none">
-                      <span className="font-medium">Dr. Sarah Chen</span>
-                      <span className="text-xs text-muted-foreground">Attending Physician</span>
+                      <span className="font-medium">{persona?.name ?? "Guest"}</span>
+                      <span className="text-xs text-muted-foreground capitalize">{persona?.description ?? "Not logged in"}</span>
                     </div>
                     <ChevronDown className="ml-auto h-4 w-4" />
                   </SidebarMenuButton>
@@ -185,7 +187,7 @@ export function DashboardShell({ children }: DashboardShellProps) {
                   <DropdownMenuItem>Profile</DropdownMenuItem>
                   <DropdownMenuItem>Preferences</DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem>Sign out</DropdownMenuItem>
+                  <DropdownMenuItem onClick={logout}>Sign out</DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </SidebarMenuItem>

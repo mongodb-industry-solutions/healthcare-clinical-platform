@@ -15,6 +15,7 @@ import {
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { useDemo } from "@/lib/demo-context"
 import { fetchAllPatients } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -41,6 +42,7 @@ type SortField = "name" | "age" | "alerts" | "hospital"
 type SortDirection = "asc" | "desc"
 
 export function PatientList() {
+  const { dataVersion } = useDemo()
   const [patients, setPatients] = React.useState<Patient360[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -50,11 +52,12 @@ export function PatientList() {
   const [profileFilter, setProfileFilter] = React.useState<string[]>([])
 
   React.useEffect(() => {
+    setLoading(true)
     fetchAllPatients({ limit: 500 })
       .then((data) => { setPatients(data); setError(null) })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
-  }, [])
+  }, [dataVersion])
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {

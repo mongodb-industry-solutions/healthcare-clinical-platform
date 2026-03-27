@@ -15,6 +15,7 @@ import {
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { useDemo } from "@/lib/demo-context"
 import { fetchAllPatients } from "@/lib/api"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -50,6 +51,7 @@ const severityOrder: Record<string, number> = {
 }
 
 export function AlertsView() {
+  const { dataVersion } = useDemo()
   const [patients, setPatients] = React.useState<Patient360[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -58,11 +60,12 @@ export function AlertsView() {
   const [alertActions, setAlertActions] = React.useState<Record<string, AlertActionState>>({})
 
   React.useEffect(() => {
+    setLoading(true)
     fetchAllPatients({ limit: 500 })
       .then((data) => { setPatients(data); setError(null) })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
-  }, [])
+  }, [dataVersion])
 
   const allAlerts: AlertWithPatient[] = React.useMemo(() => {
     const alerts: AlertWithPatient[] = []

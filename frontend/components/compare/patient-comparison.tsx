@@ -32,6 +32,7 @@ import {
 } from "recharts"
 
 import { cn } from "@/lib/utils"
+import { useDemo } from "@/lib/demo-context"
 import { fetchAllPatients, fetchPatientVitals, type VitalsWithContextResponse } from "@/lib/api"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -58,6 +59,7 @@ const VITAL_CONFIG: Record<
 }
 
 export function PatientComparison() {
+  const { dataVersion } = useDemo()
   const [patients, setPatients] = React.useState<Patient360[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -71,6 +73,7 @@ export function PatientComparison() {
   const [vitalsLoadMs, setVitalsLoadMs] = React.useState<number | null>(null)
 
   React.useEffect(() => {
+    setLoading(true)
     const t0 = performance.now()
     fetchAllPatients({ limit: 500 })
       .then((data) => {
@@ -84,7 +87,7 @@ export function PatientComparison() {
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
-  }, [])
+  }, [dataVersion])
 
   React.useEffect(() => {
     if (!leftPatientId || !rightPatientId) return

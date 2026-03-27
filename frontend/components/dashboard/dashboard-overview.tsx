@@ -7,6 +7,7 @@ import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { useDemo } from "@/lib/demo-context"
 import { fetchAllPatients } from "@/lib/api"
 import { type Patient360 } from "@/lib/mock-data"
 import { cn } from "@/lib/utils"
@@ -30,16 +31,18 @@ type ActivityItem = {
 }
 
 export function DashboardOverview() {
+  const { dataVersion } = useDemo()
   const [patients, setPatients] = React.useState<Patient360[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
+    setLoading(true)
     fetchAllPatients({ limit: 500 })
       .then((data) => { setPatients(data); setError(null) })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
-  }, [])
+  }, [dataVersion])
 
   const criticalPatients = patients.filter(
     (p) => p.active_alerts.some((a) => a.severity === "critical" || a.severity === "high")

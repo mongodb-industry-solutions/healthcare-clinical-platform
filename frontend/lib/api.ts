@@ -159,3 +159,106 @@ export async function searchPatients(
   const qs = new URLSearchParams({ q: query, limit: String(limit) })
   return apiFetch<SearchResponse>(`/dashboard/search?${qs}`)
 }
+
+// ---------------------------------------------------------------------------
+// Seed pipeline (mirrors backend/scripts/seed_demo.py)
+// ---------------------------------------------------------------------------
+
+export interface GeneratePatientsParams {
+  count: number
+  profile_type: string
+  seed?: number
+}
+
+export interface GeneratePatientsResult {
+  generated: number
+  patient_ids: string[]
+}
+
+export async function generatePatients(
+  params: GeneratePatientsParams,
+): Promise<GeneratePatientsResult> {
+  return apiFetch<GeneratePatientsResult>("/synthetic/patients/generate", {
+    method: "POST",
+    body: JSON.stringify(params),
+  })
+}
+
+export interface GenerateVitalsParams {
+  pattern: string
+  hours: number
+  interval_minutes: number
+}
+
+export interface GenerateVitalsResult {
+  patient_id: string
+  readings_written: number
+}
+
+export async function generateVitals(
+  patientId: string,
+  params: GenerateVitalsParams,
+): Promise<GenerateVitalsResult> {
+  return apiFetch<GenerateVitalsResult>(
+    `/synthetic/vitals/${patientId}/generate`,
+    { method: "POST", body: JSON.stringify(params) },
+  )
+}
+
+export async function materializeAll(): Promise<{
+  materialized: number
+  total_patients: number
+  errors: string[]
+}> {
+  return apiFetch("/materializer/patients/materialize", { method: "POST" })
+}
+
+export async function seedCdsRules(): Promise<{
+  inserted: number
+  rules: string[]
+}> {
+  return apiFetch("/cds/rules/seed", { method: "POST" })
+}
+
+export async function computeThresholds(
+  patientId: string,
+): Promise<Record<string, unknown>> {
+  return apiFetch(`/cds/thresholds/${patientId}`, { method: "POST" })
+}
+
+export async function evaluateAllCds(): Promise<{
+  evaluated: number
+  total_patients: number
+  total_alerts: number
+  errors: string[]
+}> {
+  return apiFetch("/cds/evaluate", { method: "POST" })
+}
+
+export async function computeCareGaps(): Promise<{
+  processed: number
+  total_patients: number
+  total_gaps_found: number
+  errors: string[]
+}> {
+  return apiFetch("/cds/care-gaps", { method: "POST" })
+}
+
+export async function getStatus(): Promise<{
+  patients: number
+  vitals_readings: number
+  fhir_resources: number
+}> {
+  return apiFetch("/synthetic/status")
+}
+
+export async function getCdsStatus(): Promise<{
+  cds_rules_count: number
+  alerts_count: number
+}> {
+  return apiFetch("/cds/status")
+}
+
+export async function resetData(): Promise<{ deleted_patients: number; deleted_vitals: number }> {
+  return apiFetch("/synthetic/reset?confirm=true", { method: "DELETE" })
+}
