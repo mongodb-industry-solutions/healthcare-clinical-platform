@@ -199,7 +199,7 @@ export function VitalsMonitor() {
         for (const alert of alerts) {
           if (alert.severity === "critical" || alert.severity === "high") {
             toast.error(`${name} — ${alert.title}`, {
-              description: alert.reasoning?.split(".")[0] || alert.severity,
+              description: alert.reasoning || alert.severity,
               duration: 8000,
             })
           }
@@ -433,6 +433,7 @@ export function VitalsMonitor() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="1">1s</SelectItem>
                   <SelectItem value="3">3s</SelectItem>
                   <SelectItem value="5">5s</SelectItem>
                   <SelectItem value="10">10s</SelectItem>

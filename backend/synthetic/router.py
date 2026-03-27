@@ -192,7 +192,7 @@ async def stream_vitals(
     patient_ids: str = Query(
         description="Comma-separated patient IDs to monitor",
     ),
-    interval_seconds: int = Query(default=5, ge=2, le=30),
+    interval_seconds: int = Query(default=5, ge=1, le=30),
     pattern: str = Query(default="deteriorating", description="normal | deteriorating | acute"),
 ) -> StreamingResponse:
     """

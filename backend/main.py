@@ -1,9 +1,15 @@
+import logging
 import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s:     %(name)s — %(message)s",
+)
 
 from synthetic.router import router as synthetic_router
 from materializer.router import router as materializer_router

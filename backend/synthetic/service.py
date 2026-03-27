@@ -210,7 +210,7 @@ class SyntheticService:
             try:
                 cds_service.evaluate_patient(pid)
             except Exception:
-                logger.warning("CDS evaluation failed for %s during tick", pid)
+                logger.exception("CDS evaluation failed for %s during tick", pid)
 
             serializable = {**reading}
             if isinstance(serializable.get("timestamp"), datetime):

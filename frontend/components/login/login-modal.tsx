@@ -24,11 +24,11 @@ import {
 import {
   generatePatients,
   generateVitals,
-  materializeAll,
+  materializePatient,
   seedCdsRules,
   computeThresholds,
-  evaluateAllCds,
-  computeCareGaps,
+  evaluatePatientCds,
+  computePatientCareGaps,
 } from "@/lib/api"
 import {
   Dialog,
@@ -529,9 +529,11 @@ async function runSeedPipeline(
     })
   }
 
-  // 3. Materialize
-  progress(3, "Materializing", "Building Patient 360 documents…")
-  await materializeAll()
+  // 3. Materialize only the newly created patients
+  progress(3, "Materializing", `${allPatientIds.length} patients…`)
+  for (const pid of allPatientIds) {
+    await materializePatient(pid)
+  }
 
   // 4. Seed CDS rules
   progress(4, "Seeding CDS rules", "")
@@ -543,13 +545,17 @@ async function runSeedPipeline(
     await computeThresholds(pid)
   }
 
-  // 6. Evaluate
+  // 6. Evaluate only the newly created patients
   progress(6, "Evaluating CDS rules", "Generating alerts…")
-  await evaluateAllCds()
+  for (const pid of allPatientIds) {
+    await evaluatePatientCds(pid)
+  }
 
-  // 7. Care gaps
+  // 7. Care gaps for only the newly created patients
   progress(7, "Computing care gaps", "HEDIS measures…")
-  await computeCareGaps()
+  for (const pid of allPatientIds) {
+    await computePatientCareGaps(pid)
+  }
 
   onProgress({
     currentStep: 7,

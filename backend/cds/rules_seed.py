@@ -216,8 +216,7 @@ CDS_RULES: list[dict] = [
             "severity": "moderate",      # base severity; overridden at evaluation time
             "alert_type": "comparative",
             "reasoning": (
-                "Same vital signs produce different clinical significance. "
-                "HR {value} bpm: {context_explanation}"
+                "HR {value} bpm — {context_explanation}."
             ),
             "suggested_actions": [
                 "Review in context of patient's medication list",

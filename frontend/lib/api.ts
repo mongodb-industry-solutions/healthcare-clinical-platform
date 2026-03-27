@@ -213,6 +213,12 @@ export async function materializeAll(): Promise<{
   return apiFetch("/materializer/patients/materialize", { method: "POST" })
 }
 
+export async function materializePatient(
+  patientId: string,
+): Promise<{ patient_id: string; status: string; vitals_readings_used: number }> {
+  return apiFetch(`/materializer/patients/${patientId}/materialize`, { method: "POST" })
+}
+
 export async function seedCdsRules(): Promise<{
   inserted: number
   rules: string[]
@@ -235,6 +241,12 @@ export async function evaluateAllCds(): Promise<{
   return apiFetch("/cds/evaluate", { method: "POST" })
 }
 
+export async function evaluatePatientCds(
+  patientId: string,
+): Promise<{ patient_id: string; alerts_generated: number }> {
+  return apiFetch(`/cds/evaluate/${patientId}`, { method: "POST" })
+}
+
 export async function computeCareGaps(): Promise<{
   processed: number
   total_patients: number
@@ -242,6 +254,12 @@ export async function computeCareGaps(): Promise<{
   errors: string[]
 }> {
   return apiFetch("/cds/care-gaps", { method: "POST" })
+}
+
+export async function computePatientCareGaps(
+  patientId: string,
+): Promise<Record<string, unknown>[]> {
+  return apiFetch(`/cds/care-gaps/${patientId}`, { method: "POST" })
 }
 
 export async function getStatus(): Promise<{

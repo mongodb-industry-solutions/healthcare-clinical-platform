@@ -561,16 +561,17 @@ class CDSService:
         if extra_context:
             substitutions.update(extra_context)
 
+        # Determine severity — for comparative rule, escalate for high-risk patients
+        severity = template.get("severity", "moderate")
+        if rule.get("rule_id") == "cds_comparative_context":
+            severity = self._comparative_severity(p360)
+            substitutions["context_explanation"] = self._comparative_explanation(p360, severity)
+
         # Safe template substitution
         try:
             reasoning = reasoning.format(**substitutions)
         except (KeyError, IndexError):
             pass  # leave template placeholders as-is
-
-        # Determine severity — for comparative rule, escalate for high-risk patients
-        severity = template.get("severity", "moderate")
-        if rule.get("rule_id") == "cds_comparative_context":
-            severity = self._comparative_severity(p360)
 
         # Contributing vitals snapshot
         ts = current_vitals.get("timestamp")
@@ -646,6 +647,29 @@ class CDSService:
         elif risk_score >= 1:
             return "moderate"
         return "low"
+
+    @staticmethod
+    def _comparative_explanation(p360: dict[str, Any], severity: str) -> str:
+        """Build a human-readable explanation of why the patient's context
+        makes this heart rate clinically significant."""
+        flags = p360.get("flags", {})
+        condition_codes = flags.get("condition_codes", [])
+        factors: list[str] = []
+
+        if flags.get("has_beta_blocker"):
+            factors.append("on beta-blocker therapy (HR should be controlled)")
+        if flags.get("has_ckd"):
+            factors.append("chronic kidney disease")
+        if _T2DM_CODE in condition_codes:
+            factors.append("type 2 diabetes")
+        age = p360.get("demographics", {}).get("age", 0)
+        if age >= 65:
+            factors.append(f"age {age}")
+
+        if not factors:
+            return f"classified as {severity} based on overall profile"
+
+        return f"{severity} because patient has {', '.join(factors)}"
 
     # ==================================================================
     # 4. HEDIS Care Gap Calculator
