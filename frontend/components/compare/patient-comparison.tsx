@@ -7,6 +7,8 @@ import {
   ArrowRight,
   CheckCircle2,
   ChevronDown,
+  Clock,
+  Database,
   Heart,
   Info,
   Loader2,
@@ -14,6 +16,7 @@ import {
   Shield,
   Thermometer,
   Wind,
+  Zap,
   Activity as ActivityIcon,
 } from "lucide-react"
 import {
@@ -64,10 +67,14 @@ export function PatientComparison() {
   const [leftVitals, setLeftVitals] = React.useState<VitalsWithContextResponse | null>(null)
   const [rightVitals, setRightVitals] = React.useState<VitalsWithContextResponse | null>(null)
   const [vitalsLoading, setVitalsLoading] = React.useState(false)
+  const [patientLoadMs, setPatientLoadMs] = React.useState<number | null>(null)
+  const [vitalsLoadMs, setVitalsLoadMs] = React.useState<number | null>(null)
 
   React.useEffect(() => {
+    const t0 = performance.now()
     fetchAllPatients({ limit: 500 })
       .then((data) => {
+        setPatientLoadMs(Math.round(performance.now() - t0))
         setPatients(data)
         setError(null)
         const target = data.find((p) => p.profile_type === "target" && p.active_alerts.length > 0)
@@ -82,11 +89,13 @@ export function PatientComparison() {
   React.useEffect(() => {
     if (!leftPatientId || !rightPatientId) return
     setVitalsLoading(true)
+    const t0 = performance.now()
     Promise.all([
       fetchPatientVitals(leftPatientId, 24).catch(() => null),
       fetchPatientVitals(rightPatientId, 24).catch(() => null),
     ])
       .then(([left, right]) => {
+        setVitalsLoadMs(Math.round(performance.now() - t0))
         setLeftVitals(left)
         setRightVitals(right)
       })
@@ -332,46 +341,17 @@ export function PatientComparison() {
         </CardContent>
       </Card>
 
-      {/* --- Clinical intelligence narrative --- */}
-      <Card className="border-primary/30 bg-primary/5">
-        <CardHeader>
-          <CardTitle className="text-base font-medium flex items-center gap-2">
-            <CheckCircle2 className="h-5 w-5 text-primary" />
-            The Clinical Intelligence Difference
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Traditional monitoring systems would either alert on both patients or neither.
-              Our context-aware CDS engine understands that:
-            </p>
-            <ul className="space-y-2 text-sm">
-              <li className="flex items-start gap-2">
-                <ArrowRight className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-                <span>
-                  <strong>A heart rate of 95 bpm</strong> in a patient on beta-blockers is highly
-                  concerning because the medication should be suppressing heart rate to 55–75 bpm.
-                </span>
-              </li>
-              <li className="flex items-start gap-2">
-                <ArrowRight className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-                <span>
-                  <strong>The same heart rate</strong> in a healthy 33-year-old post-surgical patient
-                  is completely normal and expected.
-                </span>
-              </li>
-              <li className="flex items-start gap-2">
-                <ArrowRight className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-                <span>
-                  <strong>SpO2 of 93–94%</strong> may be acceptable for a CKD patient but concerning
-                  for someone with healthy kidneys.
-                </span>
-              </li>
-            </ul>
-          </div>
-        </CardContent>
-      </Card>
+      {/* --- Dynamic clinical intelligence narrative --- */}
+      <ContextAnalysis left={leftPatient} right={rightPatient} />
+
+      {/* --- Why MongoDB technical deep-dive --- */}
+      <WhyMongoDB
+        patientLoadMs={patientLoadMs}
+        vitalsLoadMs={vitalsLoadMs}
+        patientCount={patients.length}
+        leftReadingCount={leftVitals?.total_readings ?? leftVitals?.readings?.length ?? 0}
+        rightReadingCount={rightVitals?.total_readings ?? rightVitals?.readings?.length ?? 0}
+      />
     </div>
   )
 }
@@ -677,15 +657,26 @@ function ComparisonCard({ patient }: { patient: Patient360 }) {
         </div>
         <div className="border-t pt-4">
           <h4 className="text-sm font-medium mb-2">Key Medications</h4>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="space-y-1.5">
             {patient.medications.length === 0 ? (
               <Badge variant="outline" className="text-muted-foreground">None</Badge>
             ) : (
-              patient.medications.slice(0, 4).map((med, i) => (
-                <Badge key={i} variant="outline" className="text-xs">
-                  {med.display.split(" ")[0]}
-                </Badge>
-              ))
+              patient.medications.slice(0, 4).map((med, i) => {
+                const adjustment = getMedThresholdLink(med.display, patient.personalized_thresholds)
+                return (
+                  <div key={i} className="flex items-center gap-1.5 text-sm">
+                    <Badge variant="outline" className="text-xs shrink-0">
+                      {med.display.split(" ")[0]}
+                    </Badge>
+                    {adjustment && (
+                      <>
+                        <ArrowRight className="h-3 w-3 text-primary shrink-0" />
+                        <span className="text-xs text-primary">{adjustment}</span>
+                      </>
+                    )}
+                  </div>
+                )
+              })
             )}
           </div>
         </div>
@@ -698,21 +689,36 @@ function ComparisonCard({ patient }: { patient: Patient360 }) {
             </div>
           ) : (
             <div className="space-y-2">
-              {patient.active_alerts.slice(0, 2).map((alert) => (
+              {patient.active_alerts.slice(0, 3).map((alert) => (
                 <div
                   key={alert.alert_id}
                   className={cn(
-                    "flex items-start gap-2 rounded-md p-2 text-sm",
+                    "flex items-start gap-2 rounded-md p-2.5 text-sm",
                     alert.severity === "critical" && "bg-destructive/10 text-destructive",
                     alert.severity === "high" && "bg-warning/10 text-warning",
+                    alert.severity === "moderate" && "bg-muted",
                   )}
                 >
                   <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
                   <div>
-                    <div className="font-medium">{alert.title}</div>
-                    <div className="text-xs opacity-80 mt-0.5 line-clamp-2">
-                      {alert.reasoning?.split(".")[0] ?? ""}.
+                    <div className="font-medium flex items-center gap-2">
+                      {alert.title}
+                      <Badge variant="outline" className="text-[10px] uppercase">{alert.severity}</Badge>
                     </div>
+                    {alert.reasoning && (
+                      <div className="text-xs opacity-80 mt-1 leading-relaxed">
+                        {alert.reasoning}
+                      </div>
+                    )}
+                    {alert.suggested_actions && alert.suggested_actions.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1.5">
+                        {alert.suggested_actions.slice(0, 3).map((action, ai) => (
+                          <Badge key={ai} variant="secondary" className="text-[10px] font-normal">
+                            {action}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
@@ -819,8 +825,289 @@ function ProfileBadge({ profile }: { profile: string }) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Context Analysis — dynamic narrative                               */
+/* ------------------------------------------------------------------ */
+
+function ContextAnalysis({ left, right }: { left: Patient360; right: Patient360 }) {
+  const insights = React.useMemo(() => buildContextInsights(left, right), [left, right])
+
+  if (insights.length === 0) return null
+
+  return (
+    <Card className="border-primary/30 bg-primary/5">
+      <CardHeader>
+        <CardTitle className="text-base font-medium flex items-center gap-2">
+          <CheckCircle2 className="h-5 w-5 text-primary" />
+          Why Context Matters — Live Analysis
+        </CardTitle>
+        <CardDescription>
+          How the CDS engine interprets the same vitals differently based on each
+          patient&apos;s clinical profile
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            A traditional monitoring system would apply <strong>one threshold</strong> to
+            all patients. Our engine evaluates {left.demographics.given}&apos;s{" "}
+            {left.conditions.length} conditions and {left.medications.length} medications
+            against {right.demographics.given}&apos;s{" "}
+            {right.conditions.length === 0 ? "healthy" : right.conditions.length + " condition"} profile
+            and produces fundamentally different assessments:
+          </p>
+          <div className="space-y-3">
+            {insights.map((insight, i) => (
+              <div key={i} className="flex items-start gap-3 rounded-md border bg-background p-3">
+                <insight.icon className={cn("h-5 w-5 shrink-0 mt-0.5", insight.iconColor)} />
+                <div className="space-y-1">
+                  <div className="text-sm font-medium">{insight.title}</div>
+                  <div className="text-sm text-muted-foreground leading-relaxed">
+                    {insight.description}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          {left.active_alerts.length > 0 && right.active_alerts.length === 0 && (
+            <div className="rounded-md border-l-4 border-primary bg-background p-4 mt-4">
+              <div className="text-sm font-medium mb-1">The Takeaway</div>
+              <div className="text-sm text-muted-foreground">
+                The system generated <strong>{left.active_alerts.length} alert{left.active_alerts.length > 1 ? "s" : ""}</strong> for{" "}
+                {left.demographics.given} and <strong>zero alerts</strong> for {right.demographics.given} —
+                not because their vitals are dramatically different, but because their clinical context
+                demands different interpretation. This is the difference between generic monitoring
+                and personalized clinical decision support.
+              </div>
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+interface ContextInsight {
+  icon: React.ComponentType<{ className?: string }>
+  iconColor: string
+  title: string
+  description: string
+}
+
+function buildContextInsights(left: Patient360, right: Patient360): ContextInsight[] {
+  const insights: ContextInsight[] = []
+  const lName = left.demographics.given
+  const rName = right.demographics.given
+  const lLatest = left.vitals_summary?.latest
+  const rLatest = right.vitals_summary?.latest
+
+  // HR threshold difference — beta-blocker
+  if (left.personalized_thresholds.heart_rate.high !== right.personalized_thresholds.heart_rate.high) {
+    const lHigh = left.personalized_thresholds.heart_rate.high
+    const rHigh = right.personalized_thresholds.heart_rate.high
+    const bbPatient = left.flags.has_beta_blocker ? left : right
+    const bbName = bbPatient.demographics.given
+    const otherName = bbPatient === left ? rName : lName
+    const bbMed = bbPatient.medications.find(
+      (m) => /atenolol|metoprolol|propranolol/i.test(m.display),
+    )
+    const medName = bbMed?.display.split(" ")[0] ?? "beta-blocker"
+
+    let hrContext = ""
+    if (lLatest?.heart_rate && rLatest?.heart_rate) {
+      const bbHr = bbPatient === left ? lLatest.heart_rate : rLatest.heart_rate
+      const otherHr = bbPatient === left ? rLatest.heart_rate : lLatest.heart_rate
+      const bbBreaches = bbHr > (bbPatient === left ? lHigh : rHigh)
+      const otherBreaches = otherHr > (bbPatient === left ? rHigh : lHigh)
+      if (bbBreaches && !otherBreaches) {
+        hrContext = ` Right now, ${bbName}'s HR of ${bbHr.toFixed(0)} bpm breaches the ${bbPatient === left ? lHigh : rHigh} bpm ceiling, while ${otherName}'s ${otherHr.toFixed(0)} bpm is safely within the ${bbPatient === left ? rHigh : lHigh} bpm standard limit.`
+      }
+    }
+
+    insights.push({
+      icon: Heart,
+      iconColor: "text-red-500",
+      title: `Heart Rate: ${lHigh} bpm threshold vs ${rHigh} bpm`,
+      description: `${bbName} is on ${medName}, which should suppress resting HR to 55-75 bpm. ` +
+        `Any reading above ${bbPatient === left ? lHigh : rHigh} bpm is clinically significant — ` +
+        `it may indicate infection, hypoglycemia, or medication non-compliance. ` +
+        `${otherName}'s standard threshold remains at ${bbPatient === left ? rHigh : lHigh} bpm.${hrContext}`,
+    })
+  }
+
+  // SpO2 threshold difference — CKD
+  if (left.personalized_thresholds.spo2.low !== right.personalized_thresholds.spo2.low) {
+    const lLow = left.personalized_thresholds.spo2.low
+    const rLow = right.personalized_thresholds.spo2.low
+    const ckdPatient = left.flags.has_ckd ? left : right
+    const ckdName = ckdPatient.demographics.given
+    const otherName = ckdPatient === left ? rName : lName
+
+    insights.push({
+      icon: ActivityIcon,
+      iconColor: "text-blue-500",
+      title: `SpO2: ${ckdName}'s floor is ${ckdPatient === left ? lLow : rLow}% vs ${ckdPatient === left ? rLow : lLow}%`,
+      description: `CKD Stage 3 causes chronic mild oxygen desaturation. ` +
+        `An SpO2 of 92% for ${ckdName} is near their expected baseline — not alarming. ` +
+        `The same reading for ${otherName} would breach the ${ckdPatient === left ? rLow : lLow}% threshold ` +
+        `and trigger an immediate alert.`,
+    })
+  }
+
+  // RR threshold difference — CKD respiratory compensation
+  if (left.personalized_thresholds.respiratory_rate.high !== right.personalized_thresholds.respiratory_rate.high) {
+    const lHigh = left.personalized_thresholds.respiratory_rate.high
+    const rHigh = right.personalized_thresholds.respiratory_rate.high
+    const ckdPatient = left.flags.has_ckd ? left : right
+    const ckdName = ckdPatient.demographics.given
+
+    insights.push({
+      icon: Wind,
+      iconColor: "text-teal-500",
+      title: `Respiratory Rate: adjusted ceiling for metabolic compensation`,
+      description: `${ckdName}'s CKD causes mild metabolic acidosis, ` +
+        `leading to compensatory respiratory rate increases (Kussmaul breathing). ` +
+        `The system raises the RR alert threshold from ${Math.min(lHigh, rHigh)} to ` +
+        `${Math.max(lHigh, rHigh)} breaths/min to avoid false alarms from expected physiology.`,
+    })
+  }
+
+  // Alert count difference
+  if (left.active_alerts.length !== right.active_alerts.length) {
+    const moreAlerts = left.active_alerts.length > right.active_alerts.length ? left : right
+    const fewerAlerts = moreAlerts === left ? right : left
+    const alertTitles = moreAlerts.active_alerts.map((a) => a.title)
+
+    insights.push({
+      icon: AlertTriangle,
+      iconColor: "text-amber-500",
+      title: `${moreAlerts.demographics.given}: ${moreAlerts.active_alerts.length} alerts vs ${fewerAlerts.demographics.given}: ${fewerAlerts.active_alerts.length}`,
+      description: `The CDS engine fired ${moreAlerts.active_alerts.length} rule${moreAlerts.active_alerts.length > 1 ? "s" : ""} ` +
+        `for ${moreAlerts.demographics.given}: ${alertTitles.join("; ")}. ` +
+        (fewerAlerts.active_alerts.length === 0
+          ? `${fewerAlerts.demographics.given}'s vitals fall within standard ranges — no rules triggered.`
+          : `${fewerAlerts.demographics.given} has ${fewerAlerts.active_alerts.length} alert${fewerAlerts.active_alerts.length > 1 ? "s" : ""}.`),
+    })
+  }
+
+  return insights
+}
+
+/* ------------------------------------------------------------------ */
+/*  Why MongoDB — technical deep-dive                                  */
+/* ------------------------------------------------------------------ */
+
+function WhyMongoDB({
+  patientLoadMs,
+  vitalsLoadMs,
+  patientCount,
+  leftReadingCount,
+  rightReadingCount,
+}: {
+  patientLoadMs: number | null
+  vitalsLoadMs: number | null
+  patientCount: number
+  leftReadingCount: number
+  rightReadingCount: number
+}) {
+  const totalReadings = leftReadingCount + rightReadingCount
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base font-medium flex items-center gap-2">
+          <Database className="h-5 w-5 text-[#00684A]" />
+          Technical Deep Dive: Why MongoDB
+        </CardTitle>
+        <CardDescription>
+          How MongoDB Atlas powers the clinical intelligence layer you just saw
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-4 md:grid-cols-3">
+          <div className="rounded-lg border p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <Zap className="h-4 w-4 text-[#00684A]" />
+              <span className="font-medium text-sm">Document Model</span>
+            </div>
+            <div className="text-sm text-muted-foreground leading-relaxed">
+              Each Patient 360 — demographics, conditions, medications, labs,
+              personalized thresholds, alerts, and care gaps — lives in{" "}
+              <strong>one document</strong>. A relational database would require
+              7+ table joins to assemble the same view.
+            </div>
+            {patientLoadMs !== null && (
+              <div className="flex items-center gap-2 rounded-md bg-[#00684A]/10 px-3 py-2">
+                <Clock className="h-3.5 w-3.5 text-[#00684A]" />
+                <span className="text-sm font-mono font-semibold text-[#00684A]">
+                  {patientLoadMs}ms
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  to load {patientCount} complete Patient 360 documents
+                </span>
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-lg border p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <Zap className="h-4 w-4 text-[#00684A]" />
+              <span className="font-medium text-sm">Time Series Collections</span>
+            </div>
+            <div className="text-sm text-muted-foreground leading-relaxed">
+              Wearable vitals stream into MongoDB&apos;s native time series collections
+              with automatic bucketing, compression, and temporal indexing — optimized
+              for high-frequency writes and range queries.
+            </div>
+            {vitalsLoadMs !== null && totalReadings > 0 && (
+              <div className="flex items-center gap-2 rounded-md bg-[#00684A]/10 px-3 py-2">
+                <Clock className="h-3.5 w-3.5 text-[#00684A]" />
+                <span className="text-sm font-mono font-semibold text-[#00684A]">
+                  {vitalsLoadMs}ms
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  to query {totalReadings.toLocaleString()} vitals readings (24h x 2 patients)
+                </span>
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-lg border p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <Zap className="h-4 w-4 text-[#00684A]" />
+              <span className="font-medium text-sm">Change Streams + Materialization</span>
+            </div>
+            <div className="text-sm text-muted-foreground leading-relaxed">
+              When new vitals arrive, MongoDB Change Streams trigger incremental
+              updates to the Patient 360 document. The CDS engine evaluates rules
+              in real-time — no batch ETL, no stale data, no delayed alerts.
+            </div>
+            <div className="flex items-center gap-2 rounded-md bg-muted px-3 py-2">
+              <Zap className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="text-xs text-muted-foreground">
+                5 CDS rules evaluated per patient on every vitals update
+              </span>
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+/* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
+
+function getMedThresholdLink(
+  medDisplay: string,
+  thresholds: Patient360["personalized_thresholds"],
+): string | null {
+  const lower = medDisplay.toLowerCase()
+  if (/atenolol|metoprolol|propranolol/i.test(lower) && thresholds.heart_rate.source_rule) {
+    return `HR threshold lowered to ${thresholds.heart_rate.high} bpm`
+  }
+  return null
+}
 
 function getVitalStatus(value: number, low: number, high: number): "normal" | "warning" | "critical" {
   if (value < low * 0.9 || value > high * 1.1) return "critical"

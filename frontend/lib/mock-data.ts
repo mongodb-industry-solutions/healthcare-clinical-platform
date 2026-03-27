@@ -102,8 +102,8 @@ export interface Alert {
   alert_id: string
   rule_id: string
   title: string
-  severity: "critical" | "high" | "medium" | "low"
-  alert_type: "threshold_breach" | "trend_alert" | "care_gap"
+  severity: "critical" | "high" | "moderate" | "medium" | "low"
+  alert_type: "threshold_breach" | "trend_alert" | "care_gap" | "multi_factor" | "comparative"
   reasoning: string
   suggested_actions: string[]
   created_at: string

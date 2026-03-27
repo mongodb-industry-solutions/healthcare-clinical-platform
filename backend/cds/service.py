@@ -191,6 +191,8 @@ class CDSService:
                 "rule_id": a["rule_id"],
                 "title": a["title"],
                 "severity": a["severity"],
+                "reasoning": a["reasoning"],
+                "suggested_actions": a["suggested_actions"],
                 "created_at": a["created_at"],
             }
             for a in generated_alerts

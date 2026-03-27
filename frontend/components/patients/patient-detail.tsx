@@ -720,7 +720,7 @@ function CompactAlertList({ alerts }: { alerts: Patient360["active_alerts"] }) {
   const [expandedId, setExpandedId] = React.useState<string | null>(null)
 
   const sorted = [...alerts].sort((a, b) => {
-    const order = { critical: 0, high: 1, medium: 2, low: 3 }
+    const order: Record<string, number> = { critical: 0, high: 1, moderate: 2, medium: 2, low: 3 }
     return (order[a.severity] ?? 4) - (order[b.severity] ?? 4)
   })
 

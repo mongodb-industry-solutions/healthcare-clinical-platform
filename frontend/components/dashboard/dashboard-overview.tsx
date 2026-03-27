@@ -23,7 +23,7 @@ type ActionItem = {
 type ActivityItem = {
   id: string
   timestamp: string
-  severity: "critical" | "high" | "medium" | "low"
+  severity: "critical" | "high" | "moderate" | "medium" | "low"
   title: string
   detail: string
   href: string
