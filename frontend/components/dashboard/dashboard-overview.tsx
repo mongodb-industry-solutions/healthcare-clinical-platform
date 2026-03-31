@@ -243,7 +243,7 @@ export function DashboardOverview() {
 
         {/* Column 3 — Recent Activity + Hospital Distribution stacked */}
         <div className="flex flex-col gap-6">
-          <Card className="flex flex-col flex-1">
+          <Card className="flex flex-col">
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2 text-base font-medium">
@@ -258,7 +258,7 @@ export function DashboardOverview() {
                 </Button>
               </div>
             </CardHeader>
-            <CardContent className="flex-1 overflow-y-auto max-h-[180px]">
+            <CardContent>
               {recentActivity.length === 0 ? (
                 <p className="py-4 text-center text-sm text-muted-foreground">
                   No recent events.
