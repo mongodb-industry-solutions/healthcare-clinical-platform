@@ -46,7 +46,7 @@ const MAX_ALERTS = 50
 const TOAST_DEBOUNCE_MS = 3000
 
 export function SimulationProvider({ children }: { children: React.ReactNode }) {
-  const { step, dataVersion } = useDemo()
+  const { step, dataVersion, bumpDataVersion } = useDemo()
 
   const [isRunning, setIsRunning] = React.useState(false)
   const [tickCount, setTickCount] = React.useState(0)
@@ -57,6 +57,7 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
   const eventSourceRef = React.useRef<EventSource | null>(null)
   const pendingCriticalRef = React.useRef<AlertNotification[]>([])
   const toastTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const dataVersionTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const unreadAlertCount = React.useMemo(
     () => recentAlerts.filter((a) => !a.read).length,
@@ -105,11 +106,19 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
         if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
         toastTimerRef.current = setTimeout(flushPendingToasts, TOAST_DEBOUNCE_MS)
       }
+
+      // Debounced data refresh so dashboard KPIs, sidebar badges, etc. stay current
+      if (dataVersionTimerRef.current) clearTimeout(dataVersionTimerRef.current)
+      dataVersionTimerRef.current = setTimeout(bumpDataVersion, 2000)
     },
-    [flushPendingToasts],
+    [flushPendingToasts, bumpDataVersion],
   )
 
-  // Connect SSE when simulation is running (demo is ready)
+  // Use a ref for addAlerts so the SSE effect doesn't reconnect when the callback identity changes
+  const addAlertsRef = React.useRef(addAlerts)
+  React.useEffect(() => { addAlertsRef.current = addAlerts }, [addAlerts])
+
+  // Connect SSE when demo is ready — runs once per seed cycle
   React.useEffect(() => {
     if (step !== "ready") return
 
@@ -177,7 +186,7 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
         }
 
         if (notifications.length > 0) {
-          addAlerts(notifications)
+          addAlertsRef.current(notifications)
         }
       } catch { /* ignore */ }
     })
@@ -198,7 +207,7 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
       es.close()
       eventSourceRef.current = null
     }
-  }, [step, dataVersion, addAlerts])
+  }, [step]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Stop simulation on page unload via beacon
   React.useEffect(() => {

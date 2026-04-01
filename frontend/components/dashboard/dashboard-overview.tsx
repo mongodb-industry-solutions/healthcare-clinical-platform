@@ -44,9 +44,14 @@ export function DashboardOverview() {
       .finally(() => setLoading(false))
   }, [dataVersion])
 
-  const criticalPatients = patients.filter(
-    (p) => p.active_alerts.some((a) => a.severity === "critical" || a.severity === "high")
-  )
+  const criticalPatients = patients
+    .filter((p) => p.active_alerts.some((a) => a.severity === "critical" || a.severity === "high"))
+    .sort((a, b) => {
+      const aCrit = a.active_alerts.filter((al) => al.severity === "critical").length
+      const bCrit = b.active_alerts.filter((al) => al.severity === "critical").length
+      if (bCrit !== aCrit) return bCrit - aCrit
+      return b.active_alerts.length - a.active_alerts.length
+    })
 
   const totalPatients = patients.length
   const criticalAlerts = patients.reduce((sum, p) => sum + p.active_alerts.filter(a => a.severity === "critical").length, 0)
@@ -233,7 +238,7 @@ export function DashboardOverview() {
               </p>
             ) : (
               <div className="space-y-2">
-                {criticalPatients.map((patient) => (
+                {criticalPatients.slice(0, 5).map((patient) => (
                   <PatientAlertRow key={patient.patient_id} patient={patient} />
                 ))}
               </div>
