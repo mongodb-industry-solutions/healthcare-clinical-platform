@@ -37,12 +37,12 @@ export function DashboardOverview() {
   const [error, setError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
-    setLoading(true)
+    if (patients.length === 0) setLoading(true)
     fetchAllPatients({ limit: 500 })
       .then((data) => { setPatients(data); setError(null) })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
-  }, [dataVersion])
+  }, [dataVersion]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const criticalPatients = patients
     .filter((p) => p.active_alerts.some((a) => a.severity === "critical" || a.severity === "high"))

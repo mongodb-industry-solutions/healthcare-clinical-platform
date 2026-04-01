@@ -199,6 +199,9 @@ class CDSService:
         ]
         self._repo.update_patient_360_active_alerts(patient_id, active_summary)
 
+        for a in generated_alerts:
+            a.pop("_id", None)
+
         return EvaluatePatientResponse(
             patient_id=patient_id,
             alerts_generated=len(generated_alerts),
