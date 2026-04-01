@@ -35,7 +35,7 @@ export default function RootLayout({
           <SimulationProvider>
             {children}
             <LoginModal />
-            <Toaster richColors position="top-right" />
+            <Toaster richColors closeButton position="top-right" />
           </SimulationProvider>
         </DemoProvider>
       </body>

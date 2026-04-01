@@ -31,7 +31,6 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Sidebar,
   SidebarContent,
@@ -286,7 +285,7 @@ export function DashboardShell({ children }: DashboardShellProps) {
                   </Button>
                 )}
               </div>
-              <ScrollArea className="max-h-80">
+              <div className="max-h-80 overflow-y-auto">
                 {recentAlerts.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
                     <Bell className="mb-2 h-8 w-8 opacity-30" />
@@ -315,7 +314,7 @@ export function DashboardShell({ children }: DashboardShellProps) {
                     ))}
                   </div>
                 )}
-              </ScrollArea>
+              </div>
             </PopoverContent>
           </Popover>
         </header>
