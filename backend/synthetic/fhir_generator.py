@@ -39,6 +39,13 @@ PROFILE_DIABETIC = "diabetic"
 PROFILE_CARDIAC  = "cardiac"
 PROFILE_MIXED    = "mixed"
 
+PROFILE_SEVERITY: dict[str, str] = {
+    PROFILE_TARGET:   "critical",
+    PROFILE_CARDIAC:  "high",
+    PROFILE_DIABETIC: "moderate",
+    PROFILE_HEALTHY:  "none",
+}
+
 # Population weights for MIXED mode: (profile, cumulative_weight)
 # target=10%, healthy=60%, diabetic=20%, cardiac=10%
 _MIXED_WEIGHTS = [
@@ -405,6 +412,7 @@ class FHIRPatientGenerator:
             "hospital_name":    HOSPITAL_META[hospital_key]["name"],
             "ingested_at":      datetime.now(timezone.utc).isoformat(),
             "profile_type":     profile_type,
+            "severity":         PROFILE_SEVERITY.get(profile_type, "none"),
             "has_beta_blocker": any(m.get("is_beta_blocker")   for m in meds),
             "has_insulin":      any(m.get("is_insulin")        for m in meds),
             "has_ace_inhibitor":any(m.get("is_ace_inhibitor")  for m in meds),
