@@ -301,86 +301,93 @@ function StepConfig() {
         </DialogDescription>
       </DialogHeader>
 
-      <div className="space-y-4">
-        {/* Profile batches */}
-        <div className="space-y-3">
-          <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-4 gap-y-1 px-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+      <div className="space-y-5">
+        {/* Profile batches — data table */}
+        <div className="rounded-lg border overflow-hidden">
+          {/* Column headers */}
+          <div className="grid grid-cols-[minmax(0,1fr)_5.5rem_8rem_10rem] gap-x-4 bg-muted/50 px-4 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider border-b">
             <span>Profile</span>
             <span className="text-center">Severity</span>
             <span className="text-center">Count</span>
-            <span className="text-center">Vitals Pattern</span>
+            <span className="text-center">Pattern</span>
           </div>
 
-          <Separator />
-
+          {/* Data rows */}
           {seedConfig.batches.map((batch, index) => {
             const meta = PROFILE_META[batch.profile_type]
             return (
               <div
                 key={batch.profile_type}
-                className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-4 gap-y-0 px-1"
+                className={cn(
+                  "grid grid-cols-[minmax(0,1fr)_5.5rem_8rem_10rem] items-center gap-x-4 px-4 py-3",
+                  index < seedConfig.batches.length - 1 && "border-b border-border/60",
+                )}
               >
-                <div className="flex flex-col gap-0.5">
-                  <div className="flex items-center gap-2">
-                    <Badge variant={meta.variant} className="text-xs">
-                      {meta.label}
-                    </Badge>
-                  </div>
-                  <span className="text-xs text-muted-foreground pl-0.5">
+                {/* Profile: badge + tagline stacked */}
+                <div className="min-w-0 space-y-0.5">
+                  <Badge variant={meta.variant} className="text-xs">
+                    {meta.label}
+                  </Badge>
+                  <p className="text-[11px] leading-tight text-muted-foreground">
                     {meta.tagline}
-                  </span>
+                  </p>
                 </div>
 
+                {/* Severity */}
                 <span className={cn("text-xs font-medium text-center", meta.severity.color)}>
                   {meta.severity.label}
                 </span>
 
-                <CountStepper
-                  value={batch.count}
-                  onChange={(n) => updateBatch(index, { count: n })}
-                />
+                {/* Count stepper */}
+                <div className="flex justify-center">
+                  <CountStepper
+                    value={batch.count}
+                    onChange={(n) => updateBatch(index, { count: n })}
+                  />
+                </div>
 
-                <Select
-                  value={batch.vitals_pattern}
-                  onValueChange={(v) =>
-                    updateBatch(index, { vitals_pattern: v as VitalsPattern })
-                  }
-                >
-                  <SelectTrigger className="h-7 w-[160px] text-xs">
-                    <SelectValue>
-                      {(() => {
-                        const pat = VITALS_PATTERNS.find((p) => p.value === batch.vitals_pattern)
-                        if (!pat) return batch.vitals_pattern
-                        const Icon = pat.icon
+                {/* Vitals pattern */}
+                <div className="flex justify-center">
+                  <Select
+                    value={batch.vitals_pattern}
+                    onValueChange={(v) =>
+                      updateBatch(index, { vitals_pattern: v as VitalsPattern })
+                    }
+                  >
+                    <SelectTrigger className="h-7 w-full text-xs">
+                      <SelectValue>
+                        {(() => {
+                          const pat = VITALS_PATTERNS.find((p) => p.value === batch.vitals_pattern)
+                          if (!pat) return batch.vitals_pattern
+                          const Icon = pat.icon
+                          return (
+                            <span className="flex items-center gap-1.5">
+                              <Icon className={cn("h-3.5 w-3.5 shrink-0", pat.color)} strokeWidth={2.5} />
+                              {pat.label}
+                            </span>
+                          )
+                        })()}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {VITALS_PATTERNS.map((p) => {
+                        const Icon = p.icon
                         return (
-                          <span className="flex items-center gap-1.5">
-                            <Icon className={cn("h-3.5 w-3.5 shrink-0", pat.color)} strokeWidth={2.5} />
-                            {pat.label}
-                          </span>
+                          <SelectItem key={p.value} value={p.value}>
+                            <span className="flex items-center gap-1.5">
+                              <Icon className={cn("h-3.5 w-3.5 shrink-0", p.color)} strokeWidth={2.5} />
+                              {p.label}
+                            </span>
+                          </SelectItem>
                         )
-                      })()}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {VITALS_PATTERNS.map((p) => {
-                      const Icon = p.icon
-                      return (
-                        <SelectItem key={p.value} value={p.value}>
-                          <span className="flex items-center gap-1.5">
-                            <Icon className={cn("h-3.5 w-3.5 shrink-0", p.color)} strokeWidth={2.5} />
-                            {p.label}
-                          </span>
-                        </SelectItem>
-                      )
-                    })}
-                  </SelectContent>
-                </Select>
+                      })}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             )
           })}
         </div>
-
-        <Separator />
 
         {/* Global vitals settings */}
         <div className="grid grid-cols-2 gap-4">
@@ -619,7 +626,7 @@ export function LoginModal() {
         showCloseButton={false}
         className={cn(
           "rounded-3xl border-0 shadow-2xl",
-          step === "config" ? "sm:max-w-2xl" : "sm:max-w-xl",
+          step === "config" ? "sm:max-w-3xl" : "sm:max-w-xl",
         )}
         onPointerDownOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => e.preventDefault()}
