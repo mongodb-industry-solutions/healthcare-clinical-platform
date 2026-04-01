@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import {
+  Activity,
   ArrowLeft,
   Check,
   Circle,
@@ -10,6 +11,8 @@ import {
   Minus,
   Plus,
   Stethoscope,
+  TriangleAlert,
+  TrendingDown,
   User,
 } from "lucide-react"
 
@@ -81,10 +84,15 @@ const PROFILE_META: Record<
   },
 }
 
-const VITALS_PATTERNS: { value: VitalsPattern; label: string }[] = [
-  { value: "normal", label: "Normal" },
-  { value: "deteriorating", label: "Deteriorating" },
-  { value: "acute", label: "Acute" },
+const VITALS_PATTERNS: {
+  value: VitalsPattern
+  label: string
+  icon: React.ElementType
+  color: string
+}[] = [
+  { value: "normal", label: "Normal", icon: Activity, color: "text-emerald-500" },
+  { value: "deteriorating", label: "Deteriorating", icon: TrendingDown, color: "text-orange-500" },
+  { value: "acute", label: "Acute", icon: TriangleAlert, color: "text-red-500" },
 ]
 
 // ---------------------------------------------------------------------------
@@ -324,15 +332,33 @@ function StepConfig() {
                     updateBatch(index, { vitals_pattern: v as VitalsPattern })
                   }
                 >
-                  <SelectTrigger className="h-7 w-[130px] text-xs">
-                    <SelectValue />
+                  <SelectTrigger className="h-7 w-[160px] text-xs">
+                    <SelectValue>
+                      {(() => {
+                        const pat = VITALS_PATTERNS.find((p) => p.value === batch.vitals_pattern)
+                        if (!pat) return batch.vitals_pattern
+                        const Icon = pat.icon
+                        return (
+                          <span className="flex items-center gap-1.5">
+                            <Icon className={cn("h-3.5 w-3.5 shrink-0", pat.color)} strokeWidth={2.5} />
+                            {pat.label}
+                          </span>
+                        )
+                      })()}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    {VITALS_PATTERNS.map((p) => (
-                      <SelectItem key={p.value} value={p.value}>
-                        {p.label}
-                      </SelectItem>
-                    ))}
+                    {VITALS_PATTERNS.map((p) => {
+                      const Icon = p.icon
+                      return (
+                        <SelectItem key={p.value} value={p.value}>
+                          <span className="flex items-center gap-1.5">
+                            <Icon className={cn("h-3.5 w-3.5 shrink-0", p.color)} strokeWidth={2.5} />
+                            {p.label}
+                          </span>
+                        </SelectItem>
+                      )
+                    })}
                   </SelectContent>
                 </Select>
               </div>
