@@ -39,6 +39,13 @@ PROFILE_DIABETIC = "diabetic"
 PROFILE_CARDIAC  = "cardiac"
 PROFILE_MIXED    = "mixed"
 
+PROFILE_SEVERITY: dict[str, str] = {
+    PROFILE_TARGET:   "critical",
+    PROFILE_CARDIAC:  "high",
+    PROFILE_DIABETIC: "moderate",
+    PROFILE_HEALTHY:  "none",
+}
+
 # Population weights for MIXED mode: (profile, cumulative_weight)
 # target=10%, healthy=60%, diabetic=20%, cardiac=10%
 _MIXED_WEIGHTS = [
@@ -405,6 +412,7 @@ class FHIRPatientGenerator:
             "hospital_name":    HOSPITAL_META[hospital_key]["name"],
             "ingested_at":      datetime.now(timezone.utc).isoformat(),
             "profile_type":     profile_type,
+            "severity":         PROFILE_SEVERITY.get(profile_type, "none"),
             "has_beta_blocker": any(m.get("is_beta_blocker")   for m in meds),
             "has_insulin":      any(m.get("is_insulin")        for m in meds),
             "has_ace_inhibitor":any(m.get("is_ace_inhibitor")  for m in meds),
@@ -814,7 +822,8 @@ class FHIRPatientGenerator:
             options = _CARDIAC_MEDS.get(snomed, [])
             return [self.rng.choice(options)] if options else []
 
-        # target — always metformin + one insulin; one med per other condition
+        # target — always metformin + one insulin; mandatory beta-blocker
+        # (Atenolol) + ACE inhibitor (Lisinopril); one med per other condition
         meds = []
         seen_rxnorm: set[str] = set()
         for cond in conditions:
@@ -827,6 +836,15 @@ class FHIRPatientGenerator:
                     if med.get("is_metformin") or med.get("is_insulin"):
                         if med["rxnorm"] not in seen_rxnorm:
                             if med.get("is_insulin") and any(m.get("is_insulin") for m in meds):
+                                continue
+                            seen_rxnorm.add(med["rxnorm"])
+                            meds.append(med)
+            elif snomed == "59621000":  # Hypertension — always Atenolol + ACE inhibitor
+                for med in options:
+                    if med.get("is_beta_blocker") or med.get("is_ace_inhibitor"):
+                        if med["rxnorm"] not in seen_rxnorm:
+                            # Only one ACE inhibitor
+                            if med.get("is_ace_inhibitor") and any(m.get("is_ace_inhibitor") for m in meds):
                                 continue
                             seen_rxnorm.add(med["rxnorm"])
                             meds.append(med)

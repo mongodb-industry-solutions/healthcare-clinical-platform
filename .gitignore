@@ -9,6 +9,9 @@ SECURITY_CHECK_README.md
 setup-hooks.sh
 .githooks/
 
+# Cursor
+.cursor/
+
 # Kanopy
 
 ./KANOPY_DEPLOYMENT_README.md

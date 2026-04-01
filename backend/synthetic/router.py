@@ -14,15 +14,24 @@ GET    /synthetic/patients                     List patients (summary, paginated
 GET    /synthetic/patients/{patient_id}        Full FHIR bundle for one patient
 POST   /synthetic/vitals/{patient_id}/generate Generate vitals history → MongoDB
 GET    /synthetic/vitals/{patient_id}          Query saved vitals readings
+GET    /synthetic/vitals/stream                SSE stream — live vitals + alert Change Stream
 GET    /synthetic/status                       Collection size counts
 DELETE /synthetic/reset                        Drop all generated data (dev only)
 """
 from __future__ import annotations
 
+import asyncio
+import json
+import logging
+import threading
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 
+from cds.repository import CDSRepository
+from cds.service import CDSService
+from materializer.repository import MaterializerRepository
 from synthetic.models import (
     GeneratePatientsRequest,
     GeneratePatientsResponse,
@@ -34,6 +43,8 @@ from synthetic.models import (
 from db.mdb import MongoDBConnector
 from synthetic.repository import SyntheticRepository
 from synthetic.service import SyntheticService
+
+logger = logging.getLogger(__name__)
 
 
 def get_synthetic_service() -> SyntheticService:
@@ -110,6 +121,160 @@ async def generate_vitals(
     if result is None:
         raise HTTPException(status_code=404, detail=f"Patient {patient_id!r} not found.")
     return result
+
+
+# ---------------------------------------------------------------------------
+# Live vitals SSE stream with Change Stream alerts
+# MUST be registered before /vitals/{patient_id} so FastAPI doesn't treat
+# "stream" as a patient_id value.
+# ---------------------------------------------------------------------------
+
+def _change_stream_watcher(
+    db: MongoDBConnector,
+    patient_ids: list[str],
+    loop: asyncio.AbstractEventLoop,
+    queue: asyncio.Queue,
+    stop_event: threading.Event,
+) -> None:
+    """
+    Background thread: watch patient_360 for active_alerts changes
+    and push new alerts into the asyncio queue.
+    """
+    collection = db.get_collection("patient_360")
+    pipeline = [
+        {
+            "$match": {
+                "operationType": {"$in": ["update", "replace"]},
+            },
+        },
+    ]
+    pid_set = set(patient_ids)
+    try:
+        with collection.watch(
+            pipeline,
+            full_document="updateLookup",
+        ) as stream:
+            while not stop_event.is_set():
+                change = stream.try_next()
+                if change is None:
+                    if stop_event.wait(0.5):
+                        break
+                    continue
+
+                full_doc = change.get("fullDocument")
+                if not full_doc:
+                    continue
+
+                patient_id = full_doc.get("patient_id", "")
+                if patient_id not in pid_set:
+                    continue
+
+                active_alerts = full_doc.get("active_alerts", [])
+                if not active_alerts:
+                    continue
+
+                patient_name = full_doc.get("demographics", {}).get("name", "")
+                thresholds = full_doc.get("personalized_thresholds", {})
+
+                alert_payload = {
+                    "patient_id": patient_id,
+                    "patient_name": patient_name,
+                    "active_alerts": active_alerts,
+                    "thresholds": thresholds,
+                }
+                loop.call_soon_threadsafe(queue.put_nowait, alert_payload)
+    except Exception:
+        logger.exception("Change Stream watcher failed")
+
+
+@router.get("/vitals/stream")
+async def stream_vitals(
+    patient_ids: str = Query(
+        description="Comma-separated patient IDs to monitor",
+    ),
+    interval_seconds: int = Query(default=5, ge=1, le=30),
+    pattern: str = Query(default="deteriorating", description="normal | deteriorating | acute"),
+) -> StreamingResponse:
+    """
+    Server-Sent Events stream that:
+    1. Generates one vitals reading per patient on each tick.
+    2. Pushes ``event: vitals`` with the new readings.
+    3. Watches patient_360 via MongoDB Change Stream for alert changes
+       and pushes ``event: alert`` instantly.
+    """
+    ids = [pid.strip() for pid in patient_ids.split(",") if pid.strip()]
+    if not ids:
+        raise HTTPException(400, "patient_ids is required")
+
+    async def event_generator():
+        db = MongoDBConnector()
+        synth_svc = SyntheticService(SyntheticRepository(db))
+        mat_repo = MaterializerRepository(db)
+        cds_svc = CDSService(CDSRepository(db))
+
+        loop = asyncio.get_running_loop()
+        alert_queue: asyncio.Queue = asyncio.Queue()
+        stop_event = threading.Event()
+
+        cs_thread = threading.Thread(
+            target=_change_stream_watcher,
+            args=(db, ids, loop, alert_queue, stop_event),
+            daemon=True,
+        )
+        cs_thread.start()
+
+        connected_payload = json.dumps({
+            "patient_ids": ids,
+            "interval_seconds": interval_seconds,
+            "pattern": pattern,
+        })
+        yield f"event: connected\ndata: {connected_payload}\n\n"
+
+        try:
+            while True:
+                try:
+                    readings = await loop.run_in_executor(
+                        None,
+                        synth_svc.tick_patients,
+                        ids, pattern, interval_seconds, mat_repo, cds_svc,
+                    )
+                except Exception:
+                    logger.exception("tick_patients failed")
+                    readings = []
+
+                vitals_event = json.dumps({
+                    "readings": readings,
+                    "timestamp": readings[0]["timestamp"] if readings else None,
+                })
+                yield f"event: vitals\ndata: {vitals_event}\n\n"
+
+                while not alert_queue.empty():
+                    try:
+                        alert_data = alert_queue.get_nowait()
+
+                        def _serialize(obj):
+                            if hasattr(obj, "isoformat"):
+                                return obj.isoformat()
+                            return str(obj)
+
+                        yield f"event: alert\ndata: {json.dumps(alert_data, default=_serialize)}\n\n"
+                    except asyncio.QueueEmpty:
+                        break
+
+                await asyncio.sleep(interval_seconds)
+        finally:
+            stop_event.set()
+            cs_thread.join(timeout=3)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/vitals/{patient_id}", response_model=list[dict])
