@@ -14,6 +14,8 @@ import {
   TriangleAlert,
   TrendingDown,
   User,
+  Users,
+  Watch,
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
@@ -63,32 +65,27 @@ const PROFILE_META: Record<
   {
     label: string
     tagline: string
-    variant: "default" | "secondary" | "outline" | "destructive"
     severity: { label: string; color: string }
   }
 > = {
   target: {
     label: "Target",
     tagline: "T2DM + CKD + HTN — primary demo patient",
-    variant: "default",
     severity: { label: "Critical", color: "text-red-500" },
   },
   healthy: {
     label: "Healthy",
     tagline: "No chronic conditions — comparison baseline",
-    variant: "secondary",
     severity: { label: "None", color: "text-muted-foreground" },
   },
   diabetic: {
     label: "Diabetic",
     tagline: "T2DM cohort — HEDIS care gap population",
-    variant: "outline",
     severity: { label: "Moderate", color: "text-orange-500" },
   },
   cardiac: {
     label: "Cardiac",
     tagline: "CHF / COPD — secondary chronic cohort",
-    variant: "destructive",
     severity: { label: "High", color: "text-amber-500" },
   },
 }
@@ -302,13 +299,17 @@ function StepConfig() {
       </DialogHeader>
 
       <div className="space-y-5">
-        {/* Profile batches — data table */}
+        {/* Section 1: Patient Population */}
+        <div className="flex items-center gap-2">
+          <Users className="h-4 w-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold">Patient Population</h3>
+        </div>
         <div className="rounded-lg border overflow-hidden">
           {/* Column headers */}
           <div className="grid grid-cols-[minmax(0,1fr)_5.5rem_8rem_10rem] gap-x-4 bg-muted/50 px-4 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider border-b">
             <span>Profile</span>
             <span className="text-center">Severity</span>
-            <span className="text-center">Count</span>
+            <span className="text-center">Patients</span>
             <span className="text-center">Pattern</span>
           </div>
 
@@ -325,7 +326,7 @@ function StepConfig() {
               >
                 {/* Profile: badge + tagline stacked */}
                 <div className="min-w-0 space-y-0.5">
-                  <Badge variant={meta.variant} className="text-xs">
+                  <Badge variant="outline" className="text-xs w-20 justify-center">
                     {meta.label}
                   </Badge>
                   <p className="text-[11px] leading-tight text-muted-foreground">
@@ -389,7 +390,12 @@ function StepConfig() {
           })}
         </div>
 
-        {/* Global vitals settings */}
+        {/* Section 2: Wearable Patch */}
+        <Separator />
+        <div className="flex items-center gap-2">
+          <Watch className="h-4 w-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold">Wearable Patch Simulation</h3>
+        </div>
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground">
