@@ -192,6 +192,16 @@ class MaterializerRepository:
             },
         )
 
+    def set_simulation_pattern(
+        self, patient_ids: list[str], pattern: str,
+    ) -> int:
+        """Set simulation_pattern on patient_360 documents for the given IDs."""
+        result = self._db.get_collection(PATIENT_360_COLLECTION).update_many(
+            {"patient_id": {"$in": patient_ids}},
+            {"$set": {"simulation_pattern": pattern}},
+        )
+        return result.modified_count
+
     def count_patient_360(self) -> int:
         """Count patient_360 documents."""
         return self._db.get_collection(PATIENT_360_COLLECTION).count_documents({})

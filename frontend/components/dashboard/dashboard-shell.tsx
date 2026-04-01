@@ -18,6 +18,7 @@ import {
 
 import { cn } from "@/lib/utils"
 import { useDemo } from "@/lib/demo-context"
+import { useSimulation, type AlertNotification } from "@/lib/simulation-context"
 import { fetchAllPatients } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import {
@@ -29,6 +30,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Sidebar,
   SidebarContent,
@@ -84,11 +87,30 @@ const hospitals = [
   { id: "community_health", name: "Community Health Partners" },
 ]
 
+const SEVERITY_DOT: Record<string, string> = {
+  critical: "bg-red-500",
+  high: "bg-orange-500",
+  moderate: "bg-yellow-500",
+  medium: "bg-yellow-500",
+  low: "bg-blue-400",
+}
+
+function timeAgo(iso: string) {
+  const diff = Date.now() - new Date(iso).getTime()
+  const secs = Math.floor(diff / 1000)
+  if (secs < 60) return `${secs}s ago`
+  const mins = Math.floor(secs / 60)
+  if (mins < 60) return `${mins}m ago`
+  return `${Math.floor(mins / 60)}h ago`
+}
+
 export function DashboardShell({ children }: DashboardShellProps) {
   const pathname = usePathname()
   const { persona, logout, dataVersion } = useDemo()
+  const { recentAlerts, unreadAlertCount, markAlertsRead, isRunning } = useSimulation()
   const [selectedHospital, setSelectedHospital] = React.useState(hospitals[0])
   const [totalAlerts, setTotalAlerts] = React.useState(0)
+  const [notifOpen, setNotifOpen] = React.useState(false)
 
   React.useEffect(() => {
     fetchAllPatients({ limit: 500 })
@@ -105,6 +127,8 @@ export function DashboardShell({ children }: DashboardShellProps) {
       })
       .catch(() => setTotalAlerts(0))
   }, [dataVersion])
+
+  const displayBadge = unreadAlertCount > 0 ? unreadAlertCount : totalAlerts
 
   return (
     <SidebarProvider>
@@ -230,15 +254,70 @@ export function DashboardShell({ children }: DashboardShellProps) {
             />
           </div>
 
-          <Button variant="ghost" size="icon" className="relative h-8 w-8">
-            <Bell className="h-4 w-4" />
-            {totalAlerts > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] text-destructive-foreground">
-                {totalAlerts > 9 ? "9+" : totalAlerts}
-              </span>
-            )}
-            <span className="sr-only">Notifications</span>
-          </Button>
+          <Popover open={notifOpen} onOpenChange={(open) => {
+            setNotifOpen(open)
+            if (open && unreadAlertCount > 0) markAlertsRead()
+          }}>
+            <PopoverTrigger asChild>
+              <Button variant="ghost" size="icon" className="relative h-8 w-8">
+                <Bell className="h-4 w-4" />
+                {displayBadge > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] text-destructive-foreground">
+                    {displayBadge > 9 ? "9+" : displayBadge}
+                  </span>
+                )}
+                <span className="sr-only">Notifications</span>
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-96 p-0">
+              <div className="flex items-center justify-between border-b px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <h4 className="text-sm font-semibold">Notifications</h4>
+                  {isRunning && (
+                    <span className="flex items-center gap-1 rounded-full bg-green-500/10 px-2 py-0.5 text-[10px] font-medium text-green-600">
+                      <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
+                      Live
+                    </span>
+                  )}
+                </div>
+                {recentAlerts.length > 0 && (
+                  <Button variant="ghost" size="sm" className="h-6 text-xs text-muted-foreground" asChild>
+                    <Link href="/alerts">View all</Link>
+                  </Button>
+                )}
+              </div>
+              <ScrollArea className="max-h-80">
+                {recentAlerts.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                    <Bell className="mb-2 h-8 w-8 opacity-30" />
+                    <p className="text-sm">No recent alerts</p>
+                    <p className="text-xs">Alerts will appear here during monitoring</p>
+                  </div>
+                ) : (
+                  <div className="divide-y">
+                    {recentAlerts.slice(0, 20).map((alert) => (
+                      <div
+                        key={alert.id}
+                        className={cn(
+                          "flex gap-3 px-4 py-3 text-sm transition-colors hover:bg-muted/50",
+                          !alert.read && "bg-muted/30",
+                        )}
+                      >
+                        <span className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", SEVERITY_DOT[alert.severity] ?? "bg-gray-400")} />
+                        <div className="flex-1 space-y-0.5 overflow-hidden">
+                          <p className="truncate font-medium">{alert.patient_name}</p>
+                          <p className="truncate text-muted-foreground">{alert.title}</p>
+                        </div>
+                        <span className="shrink-0 text-[10px] text-muted-foreground">
+                          {timeAgo(alert.timestamp)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </ScrollArea>
+            </PopoverContent>
+          </Popover>
         </header>
 
         <main className="flex-1 overflow-auto">

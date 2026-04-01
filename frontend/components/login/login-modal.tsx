@@ -34,6 +34,8 @@ import {
   computeThresholds,
   evaluatePatientCds,
   computePatientCareGaps,
+  setSimulationPattern,
+  startSimulation,
 } from "@/lib/api"
 import {
   Dialog,
@@ -472,6 +474,7 @@ const PIPELINE_STEPS = [
   "Computing personalized thresholds",
   "Evaluating CDS rules (generating alerts)",
   "Computing HEDIS care gaps",
+  "Starting real-time monitoring",
 ]
 
 function StepSeeding() {
@@ -544,7 +547,7 @@ async function runSeedPipeline(
     detail: string
   }) => void,
 ) {
-  const total = 7
+  const total = 8
   const progress = (step: number, label: string, detail = "") =>
     onProgress({ currentStep: step, totalSteps: total, stepLabel: label, detail })
 
@@ -610,11 +613,22 @@ async function runSeedPipeline(
     await computePatientCareGaps(pid)
   }
 
+  // 8. Set simulation patterns per batch and start real-time monitoring
+  progress(8, "Starting monitoring", "Launching simulation worker…")
+  for (const batch of config.batches) {
+    if (batch.count === 0) continue
+    const batchPids = allPatientIds.filter((pid) => patientProfiles[pid] === batch.profile_type)
+    if (batchPids.length > 0) {
+      await setSimulationPattern(batchPids, batch.vitals_pattern)
+    }
+  }
+  await startSimulation({ interval_seconds: 5 })
+
   onProgress({
-    currentStep: 7,
-    totalSteps: 7,
+    currentStep: 8,
+    totalSteps: 8,
     stepLabel: "Complete",
-    detail: "Demo ready!",
+    detail: "Demo ready — live monitoring active!",
   })
 }
 

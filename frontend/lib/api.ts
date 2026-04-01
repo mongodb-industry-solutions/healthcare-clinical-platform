@@ -280,3 +280,43 @@ export async function getCdsStatus(): Promise<{
 export async function resetData(): Promise<{ deleted_patients: number; deleted_vitals: number }> {
   return apiFetch("/synthetic/reset?confirm=true", { method: "DELETE" })
 }
+
+// ---------------------------------------------------------------------------
+// Simulation worker
+// ---------------------------------------------------------------------------
+
+export async function startSimulation(params?: {
+  interval_seconds?: number
+}): Promise<{ status: string; patient_count?: number }> {
+  return apiFetch("/simulation/start", {
+    method: "POST",
+    body: JSON.stringify(params ?? {}),
+  })
+}
+
+export async function stopSimulation(): Promise<{ status: string }> {
+  return apiFetch("/simulation/stop", { method: "POST" })
+}
+
+export interface SimulationStatus {
+  running: boolean
+  tick_count: number
+  patient_count: number
+  interval_seconds: number
+  elapsed_seconds: number
+  auto_stop_seconds: number
+}
+
+export async function getSimulationStatus(): Promise<SimulationStatus> {
+  return apiFetch("/simulation/status")
+}
+
+export async function setSimulationPattern(
+  patientIds: string[],
+  pattern: string,
+): Promise<{ modified: number; pattern: string }> {
+  return apiFetch("/materializer/patients/simulation-pattern", {
+    method: "POST",
+    body: JSON.stringify({ patient_ids: patientIds, pattern }),
+  })
+}

@@ -7,8 +7,6 @@ import {
   ChevronRight,
   Heart,
   Loader2,
-  Pause,
-  Play,
   Radio,
   Search,
   Thermometer,
@@ -22,6 +20,7 @@ import { toast } from "sonner"
 
 import { cn } from "@/lib/utils"
 import { useDemo } from "@/lib/demo-context"
+import { useSimulation, type LiveReading } from "@/lib/simulation-context"
 import { fetchAllPatients } from "@/lib/api"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -40,13 +39,6 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -54,20 +46,7 @@ import {
 } from "@/components/ui/tooltip"
 import { type Patient360 } from "@/lib/mock-data"
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 const MAX_WATCHLIST = 20
-
-interface LiveReading {
-  patient_id: string
-  heart_rate: number
-  respiratory_rate: number
-  temperature: number
-  spo2: number
-  activity_level: number
-  pattern: string
-  event: string | null
-  timestamp: string
-}
 
 type SmartFilter = "critical" | "deteriorating" | "high-alerts"
 
@@ -95,19 +74,13 @@ function applySmartFilter(patients: Patient360[], filter: SmartFilter): Patient3
 
 export function VitalsMonitor() {
   const { dataVersion } = useDemo()
+  const { isRunning, tickCount, liveReadings: globalReadings } = useSimulation()
   const [patients, setPatients] = React.useState<Patient360[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
 
   const [watchlistIds, setWatchlistIds] = React.useState<Set<string>>(new Set())
   const [searchOpen, setSearchOpen] = React.useState(false)
-  const [interval, setInterval_] = React.useState(5)
-  const [pattern, setPattern] = React.useState("deteriorating")
-  const [streaming, setStreaming] = React.useState(false)
-  const [liveReadings, setLiveReadings] = React.useState<Map<string, LiveReading>>(new Map())
-  const [tickCount, setTickCount] = React.useState(0)
-
-  const eventSourceRef = React.useRef<EventSource | null>(null)
 
   React.useEffect(() => {
     setLoading(true)
@@ -116,6 +89,16 @@ export function VitalsMonitor() {
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
   }, [dataVersion])
+
+  // Auto-populate watchlist with critical/deteriorating patients on first load
+  React.useEffect(() => {
+    if (patients.length > 0 && watchlistIds.size === 0) {
+      const critical = patients.filter((p) => p.active_alerts.some((a) => a.severity === "critical" || a.severity === "high"))
+      if (critical.length > 0) {
+        setWatchlistIds(new Set(critical.slice(0, MAX_WATCHLIST).map((p) => p.patient_id)))
+      }
+    }
+  }, [patients]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const addToWatchlist = React.useCallback((patientId: string) => {
     setWatchlistIds((prev) => {
@@ -161,70 +144,6 @@ export function VitalsMonitor() {
 
   const clearWatchlist = React.useCallback(() => {
     setWatchlistIds(new Set())
-    setLiveReadings(new Map())
-  }, [])
-
-  const startStreaming = React.useCallback(() => {
-    if (watchlistIds.size === 0) return
-
-    const ids = Array.from(watchlistIds).join(",")
-    const url = `${API_URL}/synthetic/vitals/stream?patient_ids=${encodeURIComponent(ids)}&interval_seconds=${interval}&pattern=${pattern}`
-
-    const es = new EventSource(url)
-    eventSourceRef.current = es
-    setTickCount(0)
-
-    es.addEventListener("connected", () => {
-      setStreaming(true)
-    })
-
-    es.addEventListener("vitals", (e) => {
-      try {
-        const data = JSON.parse(e.data)
-        const readings: LiveReading[] = data.readings || []
-        setLiveReadings((prev) => {
-          const next = new Map(prev)
-          for (const r of readings) next.set(r.patient_id, r)
-          return next
-        })
-        setTickCount((c) => c + 1)
-      } catch { /* ignore parse errors */ }
-    })
-
-    es.addEventListener("alert", (e) => {
-      try {
-        const data = JSON.parse(e.data)
-        const name = data.patient_name || data.patient_id
-        const alerts = data.active_alerts || []
-        for (const alert of alerts) {
-          if (alert.severity === "critical" || alert.severity === "high") {
-            toast.error(`${name} — ${alert.title}`, {
-              description: alert.reasoning || alert.severity,
-              duration: 8000,
-            })
-          }
-        }
-      } catch { /* ignore parse errors */ }
-    })
-
-    es.onerror = () => {
-      if (es.readyState === EventSource.CLOSED) {
-        setStreaming(false)
-        eventSourceRef.current = null
-      }
-    }
-
-    setStreaming(true)
-  }, [watchlistIds, interval, pattern])
-
-  const stopStreaming = React.useCallback(() => {
-    eventSourceRef.current?.close()
-    eventSourceRef.current = null
-    setStreaming(false)
-  }, [])
-
-  React.useEffect(() => {
-    return () => { eventSourceRef.current?.close() }
   }, [])
 
   const watchlistPatients = React.useMemo(
@@ -262,7 +181,7 @@ export function VitalsMonitor() {
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-semibold tracking-tight">Vitals Monitor</h1>
-            {streaming && (
+            {isRunning && (
               <Badge className="gap-1.5 bg-success text-white animate-pulse">
                 <Radio className="h-3 w-3" />
                 LIVE
@@ -270,10 +189,10 @@ export function VitalsMonitor() {
             )}
           </div>
           <p className="text-sm text-muted-foreground">
-            Real-time vitals simulation with CDS alert detection
+            Real-time vitals monitoring with CDS alert detection
           </p>
         </div>
-        {streaming && (
+        {isRunning && (
           <span className="text-xs text-muted-foreground tabular-nums">
             Tick #{tickCount}
           </span>
@@ -294,7 +213,7 @@ export function VitalsMonitor() {
               </CardDescription>
             </div>
             <div className="flex items-center gap-2">
-              {watchlistIds.size > 0 && !streaming && (
+              {watchlistIds.size > 0 && (
                 <Button variant="ghost" size="sm" onClick={clearWatchlist} className="text-xs text-muted-foreground">
                   Clear all
                 </Button>
@@ -304,79 +223,77 @@ export function VitalsMonitor() {
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           {/* Add patients row: search + smart filters */}
-          {!streaming && (
-            <div className="flex flex-wrap items-center gap-2">
-              <Popover open={searchOpen} onOpenChange={setSearchOpen}>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm" className="gap-1.5">
-                    <Search className="h-3.5 w-3.5" />
-                    Add patient
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[300px] p-0" align="start">
-                  <Command>
-                    <CommandInput placeholder="Search by name, MRN, or hospital..." />
-                    <CommandList>
-                      <CommandEmpty>No patients found.</CommandEmpty>
-                      <CommandGroup heading="Available patients">
-                        {availablePatients.map((p) => (
-                          <CommandItem
-                            key={p.patient_id}
-                            value={`${p.demographics.name} ${p.mrn} ${p.hospital_name}`}
-                            onSelect={() => {
-                              addToWatchlist(p.patient_id)
-                              setSearchOpen(false)
-                            }}
-                          >
-                            <div className="flex items-center gap-2.5">
-                              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-medium">
-                                {p.demographics.given[0]}{p.demographics.family[0]}
-                              </span>
-                              <div className="min-w-0">
-                                <p className="truncate text-sm">{p.demographics.name}</p>
-                                <p className="truncate text-[11px] text-muted-foreground">
-                                  {p.mrn} · {p.hospital_name}
-                                </p>
-                              </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Popover open={searchOpen} onOpenChange={setSearchOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-1.5">
+                  <Search className="h-3.5 w-3.5" />
+                  Add patient
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[300px] p-0" align="start">
+                <Command>
+                  <CommandInput placeholder="Search by name, MRN, or hospital..." />
+                  <CommandList>
+                    <CommandEmpty>No patients found.</CommandEmpty>
+                    <CommandGroup heading="Available patients">
+                      {availablePatients.map((p) => (
+                        <CommandItem
+                          key={p.patient_id}
+                          value={`${p.demographics.name} ${p.mrn} ${p.hospital_name}`}
+                          onSelect={() => {
+                            addToWatchlist(p.patient_id)
+                            setSearchOpen(false)
+                          }}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-medium">
+                              {p.demographics.given[0]}{p.demographics.family[0]}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="truncate text-sm">{p.demographics.name}</p>
+                              <p className="truncate text-[11px] text-muted-foreground">
+                                {p.mrn} · {p.hospital_name}
+                              </p>
                             </div>
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
+                          </div>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
 
-              <span className="text-xs text-muted-foreground">or quick-add:</span>
+            <span className="text-xs text-muted-foreground">or quick-add:</span>
 
-              {SMART_FILTERS.map((sf) => (
-                <TooltipProvider key={sf.key} delayDuration={200}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="gap-1.5 text-xs"
-                        onClick={() => applyFilter(sf.key)}
-                      >
-                        {sf.icon}
-                        {sf.label}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom">
-                      <p className="text-xs">{sf.description}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              ))}
-            </div>
-          )}
+            {SMART_FILTERS.map((sf) => (
+              <TooltipProvider key={sf.key} delayDuration={200}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5 text-xs"
+                      onClick={() => applyFilter(sf.key)}
+                    >
+                      {sf.icon}
+                      {sf.label}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    <p className="text-xs">{sf.description}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            ))}
+          </div>
 
           {/* Watchlist chips */}
           {watchlistIds.size > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {watchlistPatients.map((p) => {
-                const reading = liveReadings.get(p.patient_id)
+                const reading = globalReadings.get(p.patient_id)
                 const status = reading ? getWorstStatus(p, reading) : null
                 return (
                   <div
@@ -396,83 +313,29 @@ export function VitalsMonitor() {
                       !status && "bg-muted-foreground/40",
                     )} />
                     <span className="font-medium">{p.demographics.given[0]}. {p.demographics.family}</span>
-                    {!streaming && (
-                      <button
-                        onClick={() => removeFromWatchlist(p.patient_id)}
-                        className="ml-0.5 rounded-full p-0.5 text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    )}
+                    <button
+                      onClick={() => removeFromWatchlist(p.patient_id)}
+                      className="ml-0.5 rounded-full p-0.5 text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
                   </div>
                 )
               })}
             </div>
           )}
-
-          {/* Simulation controls */}
-          <div className="flex items-center gap-4 border-t pt-3">
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Pattern:</span>
-              <Select value={pattern} onValueChange={setPattern} disabled={streaming}>
-                <SelectTrigger className="w-[140px] h-8">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="normal">Normal</SelectItem>
-                  <SelectItem value="deteriorating">Deteriorating</SelectItem>
-                  <SelectItem value="acute">Acute</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Interval:</span>
-              <Select value={String(interval)} onValueChange={(v) => setInterval_(Number(v))} disabled={streaming}>
-                <SelectTrigger className="w-[90px] h-8">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="1">1s</SelectItem>
-                  <SelectItem value="3">3s</SelectItem>
-                  <SelectItem value="5">5s</SelectItem>
-                  <SelectItem value="10">10s</SelectItem>
-                  <SelectItem value="15">15s</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="ml-auto">
-              {streaming ? (
-                <Button variant="destructive" size="sm" onClick={stopStreaming} className="gap-1.5">
-                  <Pause className="h-3.5 w-3.5" />
-                  Stop
-                </Button>
-              ) : (
-                <Button
-                  size="sm"
-                  onClick={startStreaming}
-                  disabled={watchlistIds.size === 0}
-                  className="gap-1.5"
-                >
-                  <Play className="h-3.5 w-3.5" />
-                  Start Monitoring
-                </Button>
-              )}
-            </div>
-          </div>
         </CardContent>
       </Card>
 
       {/* Summary stats */}
-      {streaming && watchlistPatients.length > 0 && (
+      {isRunning && watchlistPatients.length > 0 && (
         <div className="grid gap-4 md:grid-cols-3">
           <SummaryCard title="Patients Monitored" value={watchlistPatients.length} description="Receiving live vitals" />
           <SummaryCard
             title="Threshold Breaches"
-            value={countBreaches(watchlistPatients, liveReadings)}
+            value={countBreaches(watchlistPatients, globalReadings)}
             description="Patients with out-of-range vitals"
-            variant={countBreaches(watchlistPatients, liveReadings) > 0 ? "critical" : "default"}
+            variant={countBreaches(watchlistPatients, globalReadings) > 0 ? "critical" : "default"}
           />
           <SummaryCard
             title="Readings Generated"
@@ -489,8 +352,8 @@ export function VitalsMonitor() {
             <VitalsCard
               key={patient.patient_id}
               patient={patient}
-              liveReading={liveReadings.get(patient.patient_id)}
-              streaming={streaming}
+              liveReading={globalReadings.get(patient.patient_id)}
+              streaming={isRunning}
             />
           ))}
         </div>

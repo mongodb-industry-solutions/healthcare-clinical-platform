@@ -16,7 +16,10 @@ from materializer.router import router as materializer_router
 from cds.router import router as cds_router
 from hooks.router import router as hooks_router
 from dashboard.router import router as dashboard_router
+from simulation.router import router as simulation_router
 from _collection_initializer import CollectionInitializer
+from db.mdb import MongoDBConnector
+from simulation.worker import SimulationWorker
 
 load_dotenv()
 
@@ -68,7 +71,16 @@ async def lifespan(app: FastAPI):
         {"fields": [("alert_type", 1)]},
     ])
 
+    # Shared DB connector and simulation worker available on app.state
+    shared_db = MongoDBConnector()
+    app.state.db = shared_db
+    app.state.simulation_worker = SimulationWorker(shared_db)
+
     yield
+
+    # Graceful shutdown: stop simulation if running
+    if app.state.simulation_worker.is_running():
+        await app.state.simulation_worker.stop()
 
 
 app = FastAPI(
@@ -91,6 +103,7 @@ app.include_router(materializer_router)
 app.include_router(cds_router)
 app.include_router(hooks_router)
 app.include_router(dashboard_router)
+app.include_router(simulation_router)
 
 @app.get("/")
 async def read_root(request: Request):

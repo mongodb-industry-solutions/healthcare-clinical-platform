@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import { Toaster } from 'sonner'
 import { DemoProvider } from '@/lib/demo-context'
+import { SimulationProvider } from '@/lib/simulation-context'
 import { LoginModal } from '@/components/login/login-modal'
 import './globals.css'
 
@@ -31,9 +32,11 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased min-h-screen bg-background text-foreground`}>
         <DemoProvider>
-          {children}
-          <LoginModal />
-          <Toaster richColors position="top-right" />
+          <SimulationProvider>
+            {children}
+            <LoginModal />
+            <Toaster richColors position="top-right" />
+          </SimulationProvider>
         </DemoProvider>
       </body>
     </html>

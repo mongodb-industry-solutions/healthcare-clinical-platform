@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 
 from db.mdb import MongoDBConnector
 from materializer.models import (
@@ -125,3 +126,22 @@ async def get_status(
 ) -> dict[str, int]:
     """Return the count of materialized Patient 360 documents."""
     return svc.get_status()
+
+
+# ---------------------------------------------------------------------------
+# Simulation pattern
+# ---------------------------------------------------------------------------
+
+class SetSimulationPatternRequest(BaseModel):
+    patient_ids: list[str]
+    pattern: str = "deteriorating"
+
+
+@router.post("/patients/simulation-pattern")
+async def set_simulation_pattern(
+    body: SetSimulationPatternRequest,
+    svc: MaterializerService = Depends(get_materializer_service),
+) -> dict[str, Any]:
+    """Set the simulation_pattern on patient_360 for the given patient IDs."""
+    modified = svc._repo.set_simulation_pattern(body.patient_ids, body.pattern)
+    return {"modified": modified, "pattern": body.pattern}

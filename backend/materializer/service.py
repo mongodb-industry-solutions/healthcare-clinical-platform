@@ -73,6 +73,7 @@ class MaterializerService:
             "source_hospital": meta.get("source_hospital", ""),
             "hospital_name": meta.get("hospital_name", ""),
             "profile_type": meta.get("profile_type", ""),
+            "simulation_pattern": "deteriorating",
             "demographics": demographics,
             "conditions": conditions,
             "medications": medications,
