@@ -60,27 +60,36 @@ import { Separator } from "@/components/ui/separator"
 
 const PROFILE_META: Record<
   string,
-  { label: string; tagline: string; variant: "default" | "secondary" | "outline" | "destructive" }
+  {
+    label: string
+    tagline: string
+    variant: "default" | "secondary" | "outline" | "destructive"
+    severity: { label: string; color: string }
+  }
 > = {
   target: {
     label: "Target",
     tagline: "T2DM + CKD + HTN — primary demo patient",
     variant: "default",
+    severity: { label: "Critical", color: "text-red-500" },
   },
   healthy: {
     label: "Healthy",
     tagline: "No chronic conditions — comparison baseline",
     variant: "secondary",
+    severity: { label: "None", color: "text-muted-foreground" },
   },
   diabetic: {
     label: "Diabetic",
     tagline: "T2DM cohort — HEDIS care gap population",
     variant: "outline",
+    severity: { label: "Moderate", color: "text-orange-500" },
   },
   cardiac: {
     label: "Cardiac",
     tagline: "CHF / COPD — secondary chronic cohort",
     variant: "destructive",
+    severity: { label: "High", color: "text-amber-500" },
   },
 }
 
@@ -295,8 +304,9 @@ function StepConfig() {
       <div className="space-y-4">
         {/* Profile batches */}
         <div className="space-y-3">
-          <div className="grid grid-cols-[1fr_auto_auto] gap-x-4 gap-y-1 px-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+          <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-4 gap-y-1 px-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">
             <span>Profile</span>
+            <span className="text-center">Severity</span>
             <span className="text-center">Count</span>
             <span className="text-center">Vitals Pattern</span>
           </div>
@@ -308,7 +318,7 @@ function StepConfig() {
             return (
               <div
                 key={batch.profile_type}
-                className="grid grid-cols-[1fr_auto_auto] items-center gap-x-4 gap-y-0 px-1"
+                className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-4 gap-y-0 px-1"
               >
                 <div className="flex flex-col gap-0.5">
                   <div className="flex items-center gap-2">
@@ -320,6 +330,10 @@ function StepConfig() {
                     {meta.tagline}
                   </span>
                 </div>
+
+                <span className={cn("text-xs font-medium text-center", meta.severity.color)}>
+                  {meta.severity.label}
+                </span>
 
                 <CountStepper
                   value={batch.count}
