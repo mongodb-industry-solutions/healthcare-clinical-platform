@@ -622,7 +622,7 @@ async function runSeedPipeline(
       await setSimulationPattern(batchPids, batch.vitals_pattern)
     }
   }
-  await startSimulation({ interval_seconds: 5 })
+  await startSimulation({ interval_seconds: 3 })
 
   onProgress({
     currentStep: 8,

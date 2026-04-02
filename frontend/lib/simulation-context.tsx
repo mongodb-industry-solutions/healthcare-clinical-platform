@@ -2,7 +2,17 @@
 
 import * as React from "react"
 import { toast } from "sonner"
+import { Timer, AlertTriangle } from "lucide-react"
 import { useDemo } from "@/lib/demo-context"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
@@ -53,6 +63,7 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
   const [patientCount, setPatientCount] = React.useState(0)
   const [liveReadings, setLiveReadings] = React.useState<Map<string, LiveReading>>(new Map())
   const [recentAlerts, setRecentAlerts] = React.useState<AlertNotification[]>([])
+  const [stoppedInfo, setStoppedInfo] = React.useState<{ reason: string; tickCount: number; message: string } | null>(null)
 
   const eventSourceRef = React.useRef<EventSource | null>(null)
   const pendingCriticalRef = React.useRef<AlertNotification[]>([])
@@ -194,6 +205,14 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
     es.addEventListener("stopped", (e) => {
       setIsRunning(false)
       es.close()
+      try {
+        const data = JSON.parse(e.data)
+        setStoppedInfo({
+          reason: data.reason ?? "unknown",
+          tickCount: data.tick_count ?? 0,
+          message: data.message ?? "The simulation has ended.",
+        })
+      } catch { /* ignore */ }
     })
 
     es.onerror = () => {
@@ -232,7 +251,37 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
     [isRunning, tickCount, patientCount, liveReadings, recentAlerts, unreadAlertCount, markAlertsRead, markAlertRead],
   )
 
-  return <SimulationContext value={value}>{children}</SimulationContext>
+  return (
+    <SimulationContext value={value}>
+      {children}
+      <AlertDialog open={!!stoppedInfo} onOpenChange={(open) => { if (!open) setStoppedInfo(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-muted mb-2">
+              <Timer className="h-6 w-6 text-muted-foreground" />
+            </div>
+            <AlertDialogTitle className="text-center">
+              {stoppedInfo?.reason === "auto_stop" ? "Simulation Complete" : "Simulation Stopped"}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-center">
+              {stoppedInfo?.reason === "auto_stop"
+                ? "The 7-minute simulation window has ended. All generated vitals and alerts have been saved."
+                : stoppedInfo?.message}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="flex justify-center gap-6 py-2 text-sm text-muted-foreground">
+            <span><strong className="text-foreground">{stoppedInfo?.tickCount ?? 0}</strong> ticks completed</span>
+            <span><strong className="text-foreground">{patientCount}</strong> patients monitored</span>
+          </div>
+          <AlertDialogFooter className="sm:justify-center">
+            <AlertDialogAction onClick={() => setStoppedInfo(null)}>
+              Got it
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </SimulationContext>
+  )
 }
 
 export function useSimulation() {
