@@ -183,9 +183,8 @@ function StepPersona() {
         <DialogTitle className="text-2xl font-bold tracking-tight text-primary">
           Welcome to Leafy Health
         </DialogTitle>
-        <DialogDescription className="text-base max-w-sm">
-          A clinical monitoring platform showcasing MongoDB&apos;s document
-          model for healthcare
+        <DialogDescription className="text-base">
+          A clinical monitoring platform showcasing MongoDB&apos;s document model for healthcare
         </DialogDescription>
       </DialogHeader>
 

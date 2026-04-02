@@ -270,7 +270,7 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="flex justify-center gap-6 py-2 text-sm text-muted-foreground">
-            <span><strong className="text-foreground">{stoppedInfo?.tickCount ?? 0}</strong> ticks completed</span>
+            <span><strong className="text-foreground">{(stoppedInfo?.tickCount ?? 0) * patientCount}</strong> readings generated</span>
             <span><strong className="text-foreground">{patientCount}</strong> patients monitored</span>
           </div>
           <AlertDialogFooter className="sm:justify-center">

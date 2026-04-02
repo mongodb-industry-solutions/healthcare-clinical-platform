@@ -194,7 +194,7 @@ export function VitalsMonitor() {
         </div>
         {isRunning && (
           <span className="text-xs text-muted-foreground tabular-nums">
-            Tick #{tickCount}
+            Cycle #{tickCount}
           </span>
         )}
       </div>
@@ -340,7 +340,7 @@ export function VitalsMonitor() {
           <SummaryCard
             title="Readings Generated"
             value={tickCount * watchlistPatients.length}
-            description={`${tickCount} ticks × ${watchlistPatients.length} patients`}
+            description={`${tickCount} cycles × ${watchlistPatients.length} patients`}
           />
         </div>
       )}
