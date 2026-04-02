@@ -81,6 +81,89 @@ class VitalsWithContextResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Longitudinal trend analysis
+# ---------------------------------------------------------------------------
+
+class VitalStats(BaseModel):
+    """Aggregated statistics for a single vital sign over a period."""
+    avg: float
+    min: float
+    max: float
+    std: float
+
+
+class AlertFrequency(BaseModel):
+    """Alert counts by severity for a period."""
+    critical: int = 0
+    high: int = 0
+    moderate: int = 0
+    low: int = 0
+
+
+class LongitudinalSnapshot(BaseModel):
+    """Clinical summary for a single period (historical or live-computed)."""
+    period_key: str
+    label: str
+    reference_date: str
+    vitals_summary: dict[str, VitalStats]
+    risk_score: float
+    alert_frequency: AlertFrequency
+    trend_vs_previous: str
+    conditions_active: int
+    medications_active: int
+    notes: str
+    source: str = "historical"
+    readings_analyzed: int = 0
+
+
+class WorkbenchStatus(BaseModel):
+    """Backend-derived clinical status for the workbench hero."""
+    title: str
+    tone: str
+    description: str
+
+
+class RecommendedAction(BaseModel):
+    """Action item the care team should consider next."""
+    title: str
+    description: str
+    source: Optional[str] = None
+
+
+class BaselineVitalDelta(BaseModel):
+    """How a single vital changed compared with the selected baseline."""
+    vital: str
+    label: str
+    unit: str
+    current_value: float
+    baseline_value: float
+    delta: float
+    direction: str
+    significance: str
+
+
+class LongitudinalResponse(BaseModel):
+    """Full longitudinal trend analysis for a patient."""
+    patient_id: str
+    patient_name: str
+    profile_type: str
+    current_thresholds: dict[str, Any]
+    snapshots: list[LongitudinalSnapshot]
+    selected_baseline_key: Optional[str] = None
+    selected_baseline_label: Optional[str] = None
+    baseline_risk_delta: Optional[float] = None
+    baseline_alert_delta: Optional[int] = None
+    current_status: Optional[WorkbenchStatus] = None
+    threshold_breaches: list[ThresholdBreachStatus] = []
+    top_risk_drivers: list[str] = []
+    clinical_summary: Optional[str] = None
+    baseline_vital_deltas: list[BaselineVitalDelta] = []
+    recommended_actions: list[RecommendedAction] = []
+    aggregation_ms: Optional[int] = None
+    pipeline_display: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
 # Search
 # ---------------------------------------------------------------------------
 

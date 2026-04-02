@@ -68,7 +68,7 @@ const navigation = [
     items: [
       { title: "Vitals Monitor", href: "/vitals", icon: Activity },
       { title: "Care Gaps", href: "/care-gaps", icon: ClipboardList },
-      { title: "Compare Patients", href: "/compare", icon: GitCompare },
+      { title: "Trend Analysis", href: "/compare", icon: GitCompare },
     ],
   },
   {

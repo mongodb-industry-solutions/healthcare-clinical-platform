@@ -9,7 +9,9 @@ All business logic lives here — no HTTP, no direct MongoDB queries.
 """
 from __future__ import annotations
 
+import hashlib
 import logging
+import random
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -65,6 +67,13 @@ class MaterializerService:
         # Compute vitals summary from synthetic_vitals
         vitals_summary, vitals_count = self._compute_vitals_summary(patient_id)
 
+        # Generate longitudinal snapshots for trend analysis
+        profile_type = meta.get("profile_type", "")
+        longitudinal = self._generate_longitudinal_snapshots(
+            patient_id, profile_type, flags, thresholds,
+            len(conditions), len(medications),
+        )
+
         now = datetime.now(timezone.utc).isoformat()
 
         doc: dict[str, Any] = {
@@ -72,7 +81,7 @@ class MaterializerService:
             "mrn": meta.get("mrn", ""),
             "source_hospital": meta.get("source_hospital", ""),
             "hospital_name": meta.get("hospital_name", ""),
-            "profile_type": meta.get("profile_type", ""),
+            "profile_type": profile_type,
             "simulation_pattern": "deteriorating",
             "demographics": demographics,
             "conditions": conditions,
@@ -82,6 +91,8 @@ class MaterializerService:
             "flags": flags,
             "personalized_thresholds": thresholds,
             "vitals_summary": vitals_summary,
+            "longitudinal_snapshots": longitudinal,
+            "longitudinal_generated_at": now,
             "active_alerts": [],   # populated by CDS engine in Phase C
             "care_gaps": [],       # populated by HEDIS calculator in Phase C
             "encounters": encounters,
@@ -534,3 +545,211 @@ class MaterializerService:
                 trends[field] = "stable"
 
         return trends
+
+    # ------------------------------------------------------------------
+    # Longitudinal snapshot generation
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _generate_longitudinal_snapshots(
+        patient_id: str,
+        profile_type: str,
+        flags: dict[str, Any],
+        thresholds: dict[str, Any],
+        condition_count: int,
+        medication_count: int,
+    ) -> list[dict[str, Any]]:
+        """
+        Produce synthetic period summaries that simulate months of clinical
+        history.  Each profile_type follows a distinct clinical narrative:
+
+        - healthy / normal:  stable vitals, low risk, few alerts
+        - target / deteriorating: gradual worsening over 6 months
+        - diabetic: moderate with episodic instability
+        - cardiac: elevated HR baseline with slow progression
+        """
+        rng = random.Random(
+            int(hashlib.sha256(patient_id.encode()).hexdigest()[:8], 16)
+        )
+
+        now = datetime.now(timezone.utc)
+        periods = [
+            ("6_months", "6 Months Ago",  now - timedelta(days=180)),
+            ("3_months", "3 Months Ago",  now - timedelta(days=90)),
+            ("1_month",  "1 Month Ago",   now - timedelta(days=30)),
+            ("1_week",   "1 Week Ago",    now - timedelta(days=7)),
+            ("current",  "Current",       now),
+        ]
+
+        has_bb = flags.get("has_beta_blocker", False)
+        has_ckd = flags.get("has_ckd", False)
+
+        hr_base = 68 if not has_bb else 62
+        spo2_base = 97.0 if not has_ckd else 94.0
+        rr_base = 15.0
+        temp_base = 36.7
+
+        profile = profile_type.lower()
+
+        # Per-period drift multipliers (index 0..4 = oldest..current)
+        if profile in ("target", "deteriorating"):
+            hr_drifts   = [0.0, 0.04, 0.09, 0.15, 0.22]
+            spo2_drifts = [0.0, -0.005, -0.012, -0.022, -0.035]
+            rr_drifts   = [0.0, 0.03, 0.07, 0.12, 0.18]
+            temp_drifts = [0.0, 0.002, 0.005, 0.01, 0.016]
+            risk_curve  = [12, 22, 38, 55, 72]
+            alert_scale = [0.2, 0.5, 1.0, 2.0, 3.5]
+        elif profile == "acute":
+            hr_drifts   = [0.0, 0.01, 0.02, 0.18, 0.30]
+            spo2_drifts = [0.0, -0.002, -0.004, -0.03, -0.05]
+            rr_drifts   = [0.0, 0.01, 0.02, 0.15, 0.25]
+            temp_drifts = [0.0, 0.001, 0.002, 0.015, 0.025]
+            risk_curve  = [10, 14, 18, 58, 80]
+            alert_scale = [0.1, 0.2, 0.3, 2.5, 5.0]
+        elif profile == "diabetic":
+            hr_drifts   = [0.0, 0.02, 0.05, 0.04, 0.08]
+            spo2_drifts = [0.0, -0.003, -0.008, -0.006, -0.015]
+            rr_drifts   = [0.0, 0.02, 0.04, 0.03, 0.06]
+            temp_drifts = [0.0, 0.001, 0.003, 0.002, 0.005]
+            risk_curve  = [18, 25, 35, 30, 42]
+            alert_scale = [0.3, 0.6, 1.2, 0.9, 1.8]
+        elif profile == "cardiac":
+            hr_drifts   = [0.0, 0.03, 0.06, 0.10, 0.14]
+            spo2_drifts = [0.0, -0.002, -0.005, -0.010, -0.018]
+            rr_drifts   = [0.0, 0.02, 0.04, 0.07, 0.10]
+            temp_drifts = [0.0, 0.001, 0.002, 0.004, 0.006]
+            risk_curve  = [20, 28, 38, 48, 58]
+            alert_scale = [0.3, 0.5, 1.0, 1.5, 2.5]
+        else:  # healthy / normal
+            hr_drifts   = [0.0, -0.01, -0.005, 0.005, 0.0]
+            spo2_drifts = [0.0, 0.002, 0.003, 0.002, 0.001]
+            rr_drifts   = [0.0, -0.005, -0.003, 0.0, 0.005]
+            temp_drifts = [0.0, 0.0, 0.0, 0.0, 0.0]
+            risk_curve  = [8, 6, 5, 4, 5]
+            alert_scale = [0.1, 0.05, 0.0, 0.0, 0.1]
+
+        snapshots: list[dict[str, Any]] = []
+
+        for i, (period_key, label, ref_date) in enumerate(periods):
+            noise = lambda: rng.gauss(0, 0.01)  # noqa: E731
+
+            hr_avg  = round(hr_base * (1 + hr_drifts[i] + noise()), 1)
+            spo2_avg = round(spo2_base * (1 + spo2_drifts[i] + noise()), 1)
+            spo2_avg = min(spo2_avg, 100.0)
+            rr_avg  = round(rr_base * (1 + rr_drifts[i] + noise()), 1)
+            temp_avg = round(temp_base * (1 + temp_drifts[i] + noise()), 2)
+
+            hr_std   = round(rng.uniform(2.5, 6.0), 1)
+            spo2_std = round(rng.uniform(0.5, 2.0), 1)
+            rr_std   = round(rng.uniform(1.0, 3.0), 1)
+            temp_std = round(rng.uniform(0.15, 0.4), 2)
+
+            scale = alert_scale[i]
+            critical = max(0, round(scale * rng.uniform(0, 0.4)))
+            high     = max(0, round(scale * rng.uniform(0.5, 1.5)))
+            moderate = max(0, round(scale * rng.uniform(1.0, 3.0)))
+            low      = max(0, round(scale * rng.uniform(1.5, 4.0)))
+
+            risk = min(100, max(0, risk_curve[i] + rng.randint(-3, 3)))
+
+            if i == 0:
+                trend = "stable"
+            else:
+                prev_risk = risk_curve[i - 1]
+                cur_risk = risk_curve[i]
+                if cur_risk > prev_risk + 5:
+                    trend = "worsening"
+                elif cur_risk < prev_risk - 5:
+                    trend = "improving"
+                else:
+                    trend = "stable"
+
+            cond_active = condition_count
+            med_active = medication_count
+            if profile in ("target", "deteriorating", "acute") and i < 2:
+                cond_active = max(0, condition_count - rng.randint(0, 1))
+                med_active = max(0, medication_count - rng.randint(0, 1))
+
+            notes_map = {
+                "healthy": [
+                    "Stable baseline, no concerns",
+                    "Routine follow-up, within normal limits",
+                    "Annual physical — all vitals normal",
+                    "Maintaining healthy lifestyle",
+                    "Continue current wellness plan",
+                ],
+                "target": [
+                    "Baseline assessment, early signs of concern",
+                    "Mild upward trend in HR, monitoring initiated",
+                    "SpO2 trending down, additional labs ordered",
+                    "Escalating alert frequency, treatment adjusted",
+                    "Significant deterioration, care plan under review",
+                ],
+                "acute": [
+                    "Stable on admission workup",
+                    "Routine monitoring, no acute changes",
+                    "Subtle vital changes noted",
+                    "Acute decompensation, rapid response activated",
+                    "Critical care intervention, close monitoring",
+                ],
+                "diabetic": [
+                    "Diabetes well-controlled, A1c on target",
+                    "Mild glycemic variability noted",
+                    "Increased episodes of hyperglycemia",
+                    "Temporary improvement after regimen change",
+                    "Persistent metabolic instability, endocrine consult",
+                ],
+                "cardiac": [
+                    "Cardiac function stable, EF within range",
+                    "Mild tachycardia episodes noted",
+                    "Increasing frequency of rhythm irregularities",
+                    "Rate control medications adjusted",
+                    "Progressive cardiac decompensation observed",
+                ],
+            }
+            note_list = notes_map.get(profile, notes_map["healthy"])
+
+            snapshots.append({
+                "period_key": period_key,
+                "label": label,
+                "reference_date": ref_date.isoformat(),
+                "vitals_summary": {
+                    "heart_rate": {
+                        "avg": hr_avg,
+                        "min": round(hr_avg - hr_std * 2.5, 1),
+                        "max": round(hr_avg + hr_std * 2.5, 1),
+                        "std": hr_std,
+                    },
+                    "spo2": {
+                        "avg": spo2_avg,
+                        "min": round(max(80, spo2_avg - spo2_std * 2.5), 1),
+                        "max": round(min(100, spo2_avg + spo2_std * 2.5), 1),
+                        "std": spo2_std,
+                    },
+                    "respiratory_rate": {
+                        "avg": rr_avg,
+                        "min": round(max(8, rr_avg - rr_std * 2.0), 1),
+                        "max": round(rr_avg + rr_std * 2.0, 1),
+                        "std": rr_std,
+                    },
+                    "temperature": {
+                        "avg": temp_avg,
+                        "min": round(temp_avg - temp_std * 2.0, 2),
+                        "max": round(temp_avg + temp_std * 2.0, 2),
+                        "std": temp_std,
+                    },
+                },
+                "risk_score": risk,
+                "alert_frequency": {
+                    "critical": critical,
+                    "high": high,
+                    "moderate": moderate,
+                    "low": low,
+                },
+                "trend_vs_previous": trend,
+                "conditions_active": cond_active,
+                "medications_active": med_active,
+                "notes": note_list[i] if i < len(note_list) else "",
+            })
+
+        return snapshots

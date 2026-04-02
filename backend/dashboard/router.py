@@ -18,6 +18,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from dashboard.models import (
+    LongitudinalResponse,
     PatientDetailResponse,
     PatientListResponse,
     SearchResponse,
@@ -119,6 +120,38 @@ async def get_vitals_with_context(
         raise HTTPException(
             status_code=404,
             detail=f"Patient 360 for {patient_id!r} not found.",
+        )
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Longitudinal trend analysis
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/patients/{patient_id}/longitudinal",
+    response_model=LongitudinalResponse,
+)
+async def get_longitudinal(
+    patient_id: str,
+    baseline_period_key: Optional[str] = Query(
+        default=None,
+        description="Selected baseline period key, e.g. 1_week, 1_month, 3_months, 6_months",
+    ),
+    svc: DashboardService = Depends(get_dashboard_service),
+) -> LongitudinalResponse:
+    """
+    Return longitudinal trend snapshots for a patient.
+
+    Each snapshot represents a historical period (6 months, 3 months,
+    1 month, 1 week, current) with aggregated vitals, risk scores,
+    and alert frequencies.
+    """
+    result = svc.get_longitudinal(patient_id, baseline_period_key=baseline_period_key)
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Longitudinal data for {patient_id!r} not found.",
         )
     return result
 

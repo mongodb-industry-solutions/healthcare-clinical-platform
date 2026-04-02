@@ -112,6 +112,83 @@ class DashboardRepository:
         )
 
     # ------------------------------------------------------------------
+    # Vitals aggregation (for live longitudinal snapshots)
+    # ------------------------------------------------------------------
+
+    def aggregate_vitals_stats(
+        self,
+        patient_id: str,
+        start: datetime,
+        end: datetime,
+    ) -> Optional[dict[str, Any]]:
+        """
+        Run a MongoDB aggregation pipeline to compute avg/min/max/stddev
+        for each vital sign in a single pass over the time window.
+        Returns None if no readings exist in the window.
+        """
+        pipeline: list[dict[str, Any]] = [
+            {"$match": {
+                "patient_id": patient_id,
+                "timestamp": {"$gte": start, "$lte": end},
+            }},
+            {"$group": {
+                "_id": None,
+                "count": {"$sum": 1},
+                "hr_avg": {"$avg": "$heart_rate"},
+                "hr_min": {"$min": "$heart_rate"},
+                "hr_max": {"$max": "$heart_rate"},
+                "hr_std": {"$stdDevPop": "$heart_rate"},
+                "spo2_avg": {"$avg": "$spo2"},
+                "spo2_min": {"$min": "$spo2"},
+                "spo2_max": {"$max": "$spo2"},
+                "spo2_std": {"$stdDevPop": "$spo2"},
+                "rr_avg": {"$avg": "$respiratory_rate"},
+                "rr_min": {"$min": "$respiratory_rate"},
+                "rr_max": {"$max": "$respiratory_rate"},
+                "rr_std": {"$stdDevPop": "$respiratory_rate"},
+                "temp_avg": {"$avg": "$temperature"},
+                "temp_min": {"$min": "$temperature"},
+                "temp_max": {"$max": "$temperature"},
+                "temp_std": {"$stdDevPop": "$temperature"},
+            }},
+        ]
+
+        results = list(
+            self._db.get_collection(VITALS_COLLECTION).aggregate(pipeline)
+        )
+        return results[0] if results else None
+
+    def count_alerts_in_window(
+        self,
+        patient_id: str,
+        start: datetime,
+        end: datetime,
+    ) -> dict[str, int]:
+        """
+        Count alerts by severity within a time window.
+        """
+        pipeline: list[dict[str, Any]] = [
+            {"$match": {
+                "patient_id": patient_id,
+                "created_at": {"$gte": start.isoformat(), "$lte": end.isoformat()},
+            }},
+            {"$group": {
+                "_id": "$severity",
+                "count": {"$sum": 1},
+            }},
+        ]
+
+        results = list(
+            self._db.get_collection(ALERTS_COLLECTION).aggregate(pipeline)
+        )
+        counts: dict[str, int] = {"critical": 0, "high": 0, "moderate": 0, "low": 0}
+        for r in results:
+            sev = r.get("_id", "")
+            if sev in counts:
+                counts[sev] = r["count"]
+        return counts
+
+    # ------------------------------------------------------------------
     # Search
     # ------------------------------------------------------------------
 

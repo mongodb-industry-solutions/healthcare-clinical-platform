@@ -282,6 +282,101 @@ export async function resetData(): Promise<{ deleted_patients: number; deleted_v
 }
 
 // ---------------------------------------------------------------------------
+// Longitudinal trend analysis
+// ---------------------------------------------------------------------------
+
+export interface VitalStats {
+  avg: number
+  min: number
+  max: number
+  std: number
+}
+
+export interface AlertFrequency {
+  critical: number
+  high: number
+  moderate: number
+  low: number
+}
+
+export interface WorkbenchStatus {
+  title: string
+  tone: "critical" | "high" | "moderate" | "stable"
+  description: string
+}
+
+export interface RecommendedAction {
+  title: string
+  description: string
+  source: string | null
+}
+
+export interface BaselineVitalDelta {
+  vital: string
+  label: string
+  unit: string
+  current_value: number
+  baseline_value: number
+  delta: number
+  direction: "up" | "down" | "flat"
+  significance: "high" | "moderate" | "low"
+}
+
+export interface ThresholdBreachStatus {
+  vital: string
+  current_value: number | null
+  threshold: number | null
+  breached: boolean
+  direction: string | null
+}
+
+export interface LongitudinalSnapshot {
+  period_key: string
+  label: string
+  reference_date: string
+  vitals_summary: Record<string, VitalStats>
+  risk_score: number
+  alert_frequency: AlertFrequency
+  trend_vs_previous: string
+  conditions_active: number
+  medications_active: number
+  notes: string
+  source: "historical" | "live"
+  readings_analyzed: number
+}
+
+export interface LongitudinalResponse {
+  patient_id: string
+  patient_name: string
+  profile_type: string
+  current_thresholds: Record<string, { low: number; high: number; source_rule: string | null }>
+  snapshots: LongitudinalSnapshot[]
+  selected_baseline_key: string | null
+  selected_baseline_label: string | null
+  baseline_risk_delta: number | null
+  baseline_alert_delta: number | null
+  current_status: WorkbenchStatus | null
+  threshold_breaches: ThresholdBreachStatus[]
+  top_risk_drivers: string[]
+  clinical_summary: string | null
+  baseline_vital_deltas: BaselineVitalDelta[]
+  recommended_actions: RecommendedAction[]
+  aggregation_ms: number | null
+  pipeline_display: string | null
+}
+
+export async function fetchLongitudinal(
+  patientId: string,
+  baselinePeriodKey?: string | null,
+): Promise<LongitudinalResponse> {
+  const qs = new URLSearchParams()
+  if (baselinePeriodKey) qs.set("baseline_period_key", baselinePeriodKey)
+  return apiFetch<LongitudinalResponse>(
+    `/dashboard/patients/${patientId}/longitudinal${qs.size ? `?${qs}` : ""}`,
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Simulation worker
 // ---------------------------------------------------------------------------
 
