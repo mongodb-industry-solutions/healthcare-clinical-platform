@@ -345,6 +345,37 @@ export interface LongitudinalSnapshot {
   readings_analyzed: number
 }
 
+export interface EvidenceItem {
+  category: "threshold_breach" | "baseline_drift" | "alert" | "care_gap" | "trend"
+  description: string
+  vital: string | null
+  source_rule: string | null
+  significance: "high" | "moderate" | "low"
+}
+
+export interface ChronicContextFactor {
+  factor: string
+  clinical_impact: string
+  relevant_vitals: string[]
+  source_flag: string
+}
+
+export interface CareGapContext {
+  hedis_measure: string
+  measure_name: string
+  status: string
+  days_overdue: number
+  priority_reason: string
+  wearable_correlation: string | null
+}
+
+export interface TrajectoryAssessment {
+  direction: "deteriorating" | "improving" | "stable" | "fluctuating"
+  confidence: "high" | "moderate" | "low"
+  summary: string
+  key_transitions: string[]
+}
+
 export interface LongitudinalResponse {
   patient_id: string
   patient_name: string
@@ -361,6 +392,13 @@ export interface LongitudinalResponse {
   clinical_summary: string | null
   baseline_vital_deltas: BaselineVitalDelta[]
   recommended_actions: RecommendedAction[]
+  urgency_reason: string | null
+  evidence: EvidenceItem[]
+  chronic_context: ChronicContextFactor[]
+  care_gap_context: CareGapContext[]
+  trajectory_assessment: TrajectoryAssessment | null
+  workflow_recommendation: string | null
+  confidence: "high" | "moderate" | "low" | null
   aggregation_ms: number | null
   pipeline_display: string | null
 }

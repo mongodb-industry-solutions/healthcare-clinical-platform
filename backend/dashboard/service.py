@@ -19,6 +19,9 @@ from typing import Any, Optional
 from dashboard.models import (
     AlertFrequency,
     BaselineVitalDelta,
+    CareGapContext,
+    ChronicContextFactor,
+    EvidenceItem,
     LongitudinalResponse,
     LongitudinalSnapshot,
     PatientDetailResponse,
@@ -28,6 +31,7 @@ from dashboard.models import (
     SearchResponse,
     SearchResult,
     ThresholdBreachStatus,
+    TrajectoryAssessment,
     VitalStats,
     VitalsWithContextResponse,
     WorkbenchStatus,
@@ -519,6 +523,47 @@ class DashboardService:
             baseline_alert_delta=baseline_alert_delta,
         )
         recommended_actions = _build_recommended_actions(doc)
+        conditions = doc.get("conditions", [])
+        medications = doc.get("medications", [])
+        vitals_summary = doc.get("vitals_summary", {})
+
+        urgency_reason = _build_urgency_reason(
+            current_status=current_status,
+            threshold_breaches=threshold_breaches,
+            active_alerts=active_alerts,
+            flags=flags,
+            baseline_risk_delta=baseline_risk_delta,
+            selected_baseline=selected_baseline,
+        )
+        evidence = _build_evidence(
+            threshold_breaches=threshold_breaches,
+            baseline_vital_deltas=baseline_vital_deltas,
+            active_alerts=active_alerts,
+            care_gaps=care_gaps,
+            thresholds=thresholds,
+        )
+        chronic_context = _build_chronic_context(
+            flags=flags,
+            conditions=conditions,
+            medications=medications,
+        )
+        care_gap_ctx = _build_care_gap_context(
+            care_gaps=care_gaps,
+            flags=flags,
+            vitals_summary=vitals_summary,
+        )
+        trajectory = _build_trajectory_assessment(snapshots)
+        workflow_rec = _build_workflow_recommendation(
+            current_status=current_status,
+            threshold_breaches=threshold_breaches,
+            active_alerts=active_alerts,
+            open_gap_count=len(open_gaps),
+        )
+        confidence = _compute_confidence(
+            current_snapshot=current_snapshot,
+            threshold_breaches=threshold_breaches,
+            active_alerts=active_alerts,
+        )
 
         return LongitudinalResponse(
             patient_id=patient_id,
@@ -536,6 +581,13 @@ class DashboardService:
             clinical_summary=clinical_summary,
             baseline_vital_deltas=baseline_vital_deltas,
             recommended_actions=recommended_actions,
+            urgency_reason=urgency_reason,
+            evidence=evidence,
+            chronic_context=chronic_context,
+            care_gap_context=care_gap_ctx,
+            trajectory_assessment=trajectory,
+            workflow_recommendation=workflow_rec,
+            confidence=confidence,
             aggregation_ms=agg_ms,
             pipeline_display=pipeline_display,
         )
@@ -1003,3 +1055,535 @@ def _vital_unit(vital: str) -> str:
         "activity_level": "",
     }
     return units.get(vital, "")
+
+
+# ---------------------------------------------------------------------------
+# Workbench interpretation builders
+# ---------------------------------------------------------------------------
+
+def _build_urgency_reason(
+    current_status: WorkbenchStatus,
+    threshold_breaches: list[ThresholdBreachStatus],
+    active_alerts: list[dict[str, Any]],
+    flags: dict[str, Any],
+    baseline_risk_delta: Optional[float],
+    selected_baseline: Optional[LongitudinalSnapshot],
+) -> str:
+    """
+    Produce a concise (1-2 sentence) reason *why* this patient is urgent
+    right now.  Every claim traces back to thresholds, alerts, flags,
+    or baseline deltas — never speculative.
+    """
+    breached = [b for b in threshold_breaches if b.breached]
+    critical_alerts = [
+        a for a in active_alerts
+        if _normalize_severity(a.get("severity")) == "critical"
+    ]
+    high_alerts = [
+        a for a in active_alerts
+        if _normalize_severity(a.get("severity")) == "high"
+    ]
+
+    fragments: list[str] = []
+
+    if breached:
+        breach_parts = []
+        for b in breached[:2]:
+            unit = _vital_unit(b.vital)
+            breach_parts.append(
+                f"{_vital_label(b.vital)} at {b.current_value:.1f} {unit} "
+                f"({b.direction} the personalized threshold of {b.threshold} {unit})"
+            )
+        fragments.append(
+            f"{' and '.join(breach_parts)}, indicating the patient is outside "
+            "safe personalized range."
+        )
+
+    if critical_alerts:
+        titles = [a.get("title", "untitled") for a in critical_alerts[:2]]
+        fragments.append(
+            f"Critical CDS alert{'s' if len(titles) > 1 else ''}: "
+            f"{'; '.join(titles)}."
+        )
+    elif high_alerts:
+        fragments.append(
+            f"{len(high_alerts)} high-severity alert(s) active, "
+            f"led by \"{high_alerts[0].get('title', '')}\"."
+        )
+
+    context_qualifiers: list[str] = []
+    if flags.get("has_beta_blocker"):
+        context_qualifiers.append("beta-blocker therapy")
+    if flags.get("has_ckd"):
+        context_qualifiers.append("CKD")
+    if flags.get("has_insulin"):
+        context_qualifiers.append("insulin use")
+    if context_qualifiers:
+        fragments.append(
+            f"This is more concerning because the patient has "
+            f"{', '.join(context_qualifiers)}, which lowers the threshold "
+            "for clinical significance."
+        )
+
+    if (
+        baseline_risk_delta is not None
+        and selected_baseline
+        and abs(baseline_risk_delta) >= 2
+    ):
+        direction = "higher" if baseline_risk_delta > 0 else "lower"
+        fragments.append(
+            f"Compared with {selected_baseline.label.lower()}, risk is "
+            f"{abs(baseline_risk_delta):.0f} points {direction}."
+        )
+
+    if fragments:
+        return " ".join(fragments[:3])
+
+    return current_status.description
+
+
+def _build_evidence(
+    threshold_breaches: list[ThresholdBreachStatus],
+    baseline_vital_deltas: list[BaselineVitalDelta],
+    active_alerts: list[dict[str, Any]],
+    care_gaps: list[dict[str, Any]],
+    thresholds: dict[str, Any],
+) -> list[EvidenceItem]:
+    """
+    Build structured evidence items linking specific data points to
+    clinical interpretation.  Each item cites a category and the data
+    source that produced it.
+    """
+    items: list[EvidenceItem] = []
+
+    for b in threshold_breaches:
+        if not b.breached:
+            continue
+        thresh_info = thresholds.get(b.vital, {})
+        source_rule = thresh_info.get("source_rule")
+        items.append(EvidenceItem(
+            category="threshold_breach",
+            description=(
+                f"{_vital_label(b.vital)} is {b.current_value:.1f} {_vital_unit(b.vital)}, "
+                f"{b.direction} the personalized threshold of "
+                f"{b.threshold} {_vital_unit(b.vital)}."
+            ),
+            vital=b.vital,
+            source_rule=source_rule,
+            significance="high",
+        ))
+
+    for delta in baseline_vital_deltas:
+        if delta.significance == "low":
+            continue
+        direction_word = "rose" if delta.delta > 0 else "fell"
+        items.append(EvidenceItem(
+            category="baseline_drift",
+            description=(
+                f"{delta.label} {direction_word} from {delta.baseline_value} to "
+                f"{delta.current_value} {delta.unit} vs baseline, a clinically "
+                f"{delta.significance}-significance shift."
+            ),
+            vital=delta.vital,
+            significance=delta.significance,
+        ))
+
+    for alert in active_alerts[:3]:
+        items.append(EvidenceItem(
+            category="alert",
+            description=(
+                f"CDS alert \"{alert.get('title', '')}\": "
+                f"{alert.get('reasoning', 'no reasoning provided')}"
+            ),
+            source_rule=alert.get("rule_id"),
+            significance="high" if _normalize_severity(
+                alert.get("severity"),
+            ) in ("critical", "high") else "moderate",
+        ))
+
+    open_gaps = [g for g in care_gaps if g.get("status") == "open"]
+    for gap in open_gaps[:2]:
+        days = gap.get("days_overdue", 0)
+        overdue_text = f"{days} days overdue" if days and days > 0 else "upcoming"
+        items.append(EvidenceItem(
+            category="care_gap",
+            description=(
+                f"HEDIS {gap.get('hedis_measure', '')}: "
+                f"{gap.get('measure_name', '')} is {overdue_text}."
+            ),
+            significance="moderate" if not days or days <= 30 else "high",
+        ))
+
+    return items[:8]
+
+
+def _build_chronic_context(
+    flags: dict[str, Any],
+    conditions: list[dict[str, Any]],
+    medications: list[dict[str, Any]],
+) -> list[ChronicContextFactor]:
+    """
+    Explain how the patient's chronic conditions and medications modify
+    the clinical interpretation of their vitals.  Each factor maps
+    directly to a Patient 360 flag.
+    """
+    factors: list[ChronicContextFactor] = []
+
+    if flags.get("has_beta_blocker"):
+        med_name = _find_medication_display(medications, "atenolol")
+        factors.append(ChronicContextFactor(
+            factor=f"Beta-blocker therapy ({med_name})" if med_name else "Beta-blocker therapy",
+            clinical_impact=(
+                "Lowers expected resting heart rate to 55-75 bpm. A heart rate "
+                "above 90 bpm despite beta-blockade suggests medication failure, "
+                "possible hypoglycemia, infection, or cardiac event."
+            ),
+            relevant_vitals=["heart_rate"],
+            source_flag="has_beta_blocker",
+        ))
+
+    if flags.get("has_ckd"):
+        factors.append(ChronicContextFactor(
+            factor="Chronic Kidney Disease (Stage 3)",
+            clinical_impact=(
+                "CKD lowers baseline SpO2 by ~2% and shifts respiratory "
+                "compensation. Elevated respiratory rate in CKD may indicate "
+                "metabolic acidosis (Kussmaul breathing) rather than primary "
+                "respiratory pathology."
+            ),
+            relevant_vitals=["spo2", "respiratory_rate"],
+            source_flag="has_ckd",
+        ))
+
+    if flags.get("has_insulin"):
+        factors.append(ChronicContextFactor(
+            factor="Insulin therapy (basal insulin)",
+            clinical_impact=(
+                "Insulin use in elderly patients raises concern for "
+                "hypoglycemic episodes. Sudden HR spike (+20-30 bpm), "
+                "decreased activity, and temperature drop together suggest "
+                "a hypoglycemic event."
+            ),
+            relevant_vitals=["heart_rate", "activity_level", "temperature"],
+            source_flag="has_insulin",
+        ))
+
+    if flags.get("has_ace_inhibitor"):
+        med_name = _find_medication_display(medications, "lisinopril")
+        factors.append(ChronicContextFactor(
+            factor=f"ACE inhibitor ({med_name})" if med_name else "ACE inhibitor",
+            clinical_impact=(
+                "ACE inhibitors are renoprotective in CKD but can cause "
+                "hyperkalemia and acute kidney injury. Monitor for worsening "
+                "renal function in conjunction with vitals changes."
+            ),
+            relevant_vitals=["heart_rate"],
+            source_flag="has_ace_inhibitor",
+        ))
+
+    condition_codes = set(flags.get("condition_codes", []))
+    if "44054006" in condition_codes:
+        factors.append(ChronicContextFactor(
+            factor="Type 2 Diabetes Mellitus",
+            clinical_impact=(
+                "T2DM increases infection risk and impairs wound healing. "
+                "Temperature and respiratory changes carry higher clinical "
+                "significance for sepsis screening."
+            ),
+            relevant_vitals=["temperature", "respiratory_rate", "heart_rate"],
+            source_flag="condition_codes",
+        ))
+
+    return factors
+
+
+def _build_care_gap_context(
+    care_gaps: list[dict[str, Any]],
+    flags: dict[str, Any],
+    vitals_summary: dict[str, Any],
+) -> list[CareGapContext]:
+    """
+    For each open care gap, explain why it matters for this specific
+    patient based on their flags and current vitals trends.
+    """
+    results: list[CareGapContext] = []
+
+    trend_24h = vitals_summary.get("trend_24h", {})
+
+    for gap in care_gaps:
+        if gap.get("status") != "open":
+            continue
+
+        measure = gap.get("hedis_measure", "")
+        measure_name = gap.get("measure_name", "")
+        days_overdue = gap.get("days_overdue", 0)
+
+        priority_reason, wearable_correlation = _care_gap_reasoning(
+            measure, flags, trend_24h, days_overdue,
+        )
+
+        results.append(CareGapContext(
+            hedis_measure=measure,
+            measure_name=measure_name,
+            status=gap.get("status", "open"),
+            days_overdue=days_overdue or 0,
+            priority_reason=priority_reason,
+            wearable_correlation=wearable_correlation,
+        ))
+
+    return results
+
+
+def _care_gap_reasoning(
+    measure: str,
+    flags: dict[str, Any],
+    trend_24h: dict[str, str],
+    days_overdue: int,
+) -> tuple[str, Optional[str]]:
+    """Map each HEDIS measure to a patient-specific priority reason."""
+    overdue_prefix = (
+        f"{days_overdue} days overdue. " if days_overdue and days_overdue > 0 else ""
+    )
+    has_ckd = flags.get("has_ckd", False)
+    has_insulin = flags.get("has_insulin", False)
+    has_bb = flags.get("has_beta_blocker", False)
+
+    if measure == "CDC-HBA":
+        reason = (
+            f"{overdue_prefix}HbA1c testing is critical for glycemic control assessment "
+            "in this diabetic patient."
+        )
+        wearable = None
+        if (
+            trend_24h.get("heart_rate") == "increasing"
+            or trend_24h.get("activity_level") == "decreasing"
+        ):
+            wearable = (
+                "Wearable data shows HR trending up or activity declining, "
+                "patterns consistent with poor glycemic control. "
+                "This strengthens the urgency of HbA1c re-testing."
+            )
+        return reason, wearable
+
+    if measure == "KED":
+        reason = (
+            f"{overdue_prefix}Annual kidney evaluation (eGFR + uACR) is especially "
+            "important because this patient has CKD."
+            if has_ckd else
+            f"{overdue_prefix}Annual kidney evaluation is standard for diabetic patients."
+        )
+        wearable = None
+        if trend_24h.get("respiratory_rate") == "increasing" and has_ckd:
+            wearable = (
+                "Rising respiratory rate in a CKD patient may indicate worsening "
+                "metabolic acidosis, making kidney function re-evaluation urgent."
+            )
+        return reason, wearable
+
+    if measure == "CBP":
+        reason = (
+            f"{overdue_prefix}Blood pressure control target (<140/90) verification "
+            "is essential for this patient with both diabetes and hypertension."
+        )
+        wearable = None
+        if has_bb and trend_24h.get("heart_rate") == "increasing":
+            wearable = (
+                "Heart rate is trending up despite beta-blocker therapy, which may "
+                "correlate with suboptimal blood pressure control."
+            )
+        return reason, wearable
+
+    if measure == "SPD":
+        reason = (
+            f"{overdue_prefix}Statin therapy review is recommended for diabetic "
+            "patients aged 40-75 to reduce cardiovascular risk."
+        )
+        return reason, None
+
+    if measure == "EED":
+        reason = (
+            f"{overdue_prefix}Annual retinal exam screens for diabetic retinopathy, "
+            "which accelerates with poor glycemic control."
+        )
+        wearable = None
+        if has_insulin:
+            wearable = (
+                "This patient is on insulin, indicating advanced diabetes management "
+                "that makes retinal screening more urgent."
+            )
+        return reason, wearable
+
+    return (
+        f"{overdue_prefix}Scheduled follow-up to close this HEDIS measure gap.",
+        None,
+    )
+
+
+def _build_trajectory_assessment(
+    snapshots: list[LongitudinalSnapshot],
+) -> Optional[TrajectoryAssessment]:
+    """
+    Assess overall clinical trajectory across all snapshots.
+    Uses trend_vs_previous markers and risk score progression.
+    """
+    if len(snapshots) < 2:
+        return None
+
+    trends = [s.trend_vs_previous for s in snapshots]
+    risk_scores = [s.risk_score for s in snapshots]
+    worsening_count = trends.count("worsening")
+    improving_count = trends.count("improving")
+
+    first_risk = risk_scores[0]
+    last_risk = risk_scores[-1]
+    risk_delta = last_risk - first_risk
+
+    if worsening_count >= 3 or risk_delta > 30:
+        direction = "deteriorating"
+    elif improving_count >= 3 or risk_delta < -20:
+        direction = "improving"
+    elif worsening_count > improving_count:
+        direction = "deteriorating"
+    elif improving_count > worsening_count:
+        direction = "improving"
+    elif abs(risk_delta) <= 5:
+        direction = "stable"
+    else:
+        direction = "fluctuating"
+
+    consistent_signals = worsening_count >= 3 or improving_count >= 3
+    strong_risk_change = abs(risk_delta) > 20
+    if consistent_signals and strong_risk_change:
+        confidence = "high"
+    elif consistent_signals or strong_risk_change:
+        confidence = "moderate"
+    else:
+        confidence = "low"
+
+    transitions: list[str] = []
+    for i in range(1, len(snapshots)):
+        prev_trend = trends[i - 1] if i > 1 else "stable"
+        curr_trend = trends[i]
+        if prev_trend != curr_trend and curr_trend != "stable":
+            transitions.append(
+                f"{snapshots[i].label}: shifted to {curr_trend} "
+                f"(risk {risk_scores[i-1]} → {risk_scores[i]})"
+            )
+
+    summary_parts = [
+        f"Over the observation period, the patient's clinical trajectory is "
+        f"{direction} with {confidence} confidence.",
+        f"Risk score moved from {first_risk} to {last_risk} "
+        f"({'+' if risk_delta >= 0 else ''}{risk_delta} points).",
+    ]
+    if worsening_count > 0:
+        summary_parts.append(
+            f"{worsening_count} of {len(trends)} periods showed worsening."
+        )
+
+    return TrajectoryAssessment(
+        direction=direction,
+        confidence=confidence,
+        summary=" ".join(summary_parts),
+        key_transitions=transitions[:3],
+    )
+
+
+def _build_workflow_recommendation(
+    current_status: WorkbenchStatus,
+    threshold_breaches: list[ThresholdBreachStatus],
+    active_alerts: list[dict[str, Any]],
+    open_gap_count: int,
+) -> str:
+    """
+    Single care pathway directive based on the patient's current
+    escalation level.  Maps directly to status tone.
+    """
+    breach_count = sum(1 for b in threshold_breaches if b.breached)
+    critical_count = sum(
+        1 for a in active_alerts
+        if _normalize_severity(a.get("severity")) == "critical"
+    )
+
+    if current_status.tone == "critical":
+        return (
+            "Initiate immediate clinical review. Activate rapid response "
+            "protocol if available. Verify medication compliance, assess "
+            "for acute infection or cardiac event, and prepare for possible "
+            "transfer to higher-acuity care."
+        )
+
+    if current_status.tone == "high":
+        actions = ["Schedule urgent clinician review within 2-4 hours."]
+        if breach_count > 0:
+            actions.append(
+                "Re-check breached vitals manually to confirm wearable readings."
+            )
+        if open_gap_count > 0:
+            actions.append(
+                f"Address {open_gap_count} open care gap(s) during the review."
+            )
+        return " ".join(actions)
+
+    if current_status.tone == "moderate":
+        return (
+            "Continue monitoring with increased frequency. Review care gaps "
+            "and schedule follow-up assessments within 24-48 hours to prevent "
+            "drift toward escalation."
+        )
+
+    return (
+        "Maintain routine monitoring cadence. No immediate intervention "
+        "required. Next standard review per care plan schedule."
+    )
+
+
+def _compute_confidence(
+    current_snapshot: Optional[LongitudinalSnapshot],
+    threshold_breaches: list[ThresholdBreachStatus],
+    active_alerts: list[dict[str, Any]],
+) -> str:
+    """
+    Confidence in the clinical interpretation, based on:
+    - Data completeness (readings analyzed)
+    - Signal consistency (multiple corroborating signals)
+    - Alert confirmation (CDS rules fired)
+    """
+    signals = 0
+
+    if current_snapshot and current_snapshot.readings_analyzed > 0:
+        signals += 1
+        if current_snapshot.readings_analyzed >= 50:
+            signals += 1
+
+    breach_count = sum(1 for b in threshold_breaches if b.breached)
+    if breach_count >= 2:
+        signals += 2
+    elif breach_count == 1:
+        signals += 1
+
+    if active_alerts:
+        signals += 1
+        if any(
+            _normalize_severity(a.get("severity")) in ("critical", "high")
+            for a in active_alerts
+        ):
+            signals += 1
+
+    if signals >= 4:
+        return "high"
+    if signals >= 2:
+        return "moderate"
+    return "low"
+
+
+def _find_medication_display(
+    medications: list[dict[str, Any]], keyword: str,
+) -> Optional[str]:
+    """Find a medication display name containing the keyword."""
+    keyword_lower = keyword.lower()
+    for med in medications:
+        display = med.get("display", "")
+        if keyword_lower in display.lower():
+            return display
+    return None

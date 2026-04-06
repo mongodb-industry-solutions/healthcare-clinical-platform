@@ -44,11 +44,15 @@ import {
 } from "@/lib/simulation-context"
 import {
   type BaselineVitalDelta,
+  type CareGapContext,
+  type ChronicContextFactor,
+  type EvidenceItem,
   fetchAllPatients,
   fetchLongitudinal,
   type LongitudinalResponse,
   type LongitudinalSnapshot,
   type RecommendedAction,
+  type TrajectoryAssessment,
   type WorkbenchStatus,
 } from "@/lib/api"
 import { Badge } from "@/components/ui/badge"
@@ -280,6 +284,8 @@ export function PatientComparison() {
             baselineRiskDelta={longitudinal.baseline_risk_delta}
             baselineAlertDelta={longitudinal.baseline_alert_delta}
             clinicalSummary={longitudinal.clinical_summary}
+            urgencyReason={longitudinal.urgency_reason}
+            confidence={longitudinal.confidence}
           />
 
           <div className="grid gap-4 xl:grid-cols-[1.4fr_0.9fr]">
@@ -295,6 +301,7 @@ export function PatientComparison() {
             <RecommendedActionsCard
               patient={selectedPatient}
               actions={longitudinal.recommended_actions}
+              workflowRecommendation={longitudinal.workflow_recommendation}
             />
           </div>
 
@@ -324,6 +331,7 @@ export function PatientComparison() {
             snapshots={longitudinal.snapshots}
             profileType={longitudinal.profile_type}
             selectedBaseline={selectedBaseline}
+            trajectoryAssessment={longitudinal.trajectory_assessment}
           />
 
           {/* Risk score trend */}
@@ -349,7 +357,13 @@ export function PatientComparison() {
           <AlertHistoryChart snapshots={longitudinal.snapshots} />
 
           {/* Clinical context */}
-          <ClinicalContextCard snapshots={longitudinal.snapshots} profileType={longitudinal.profile_type} />
+          <ClinicalContextCard
+            snapshots={longitudinal.snapshots}
+            profileType={longitudinal.profile_type}
+            evidence={longitudinal.evidence}
+            chronicContext={longitudinal.chronic_context}
+            careGapContext={longitudinal.care_gap_context}
+          />
 
           <details className="group rounded-lg border bg-card">
             <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-medium">
@@ -477,6 +491,8 @@ function EscalationHeroCard({
   baselineRiskDelta,
   baselineAlertDelta,
   clinicalSummary,
+  urgencyReason,
+  confidence,
 }: {
   patient: Patient360
   snapshots: LongitudinalSnapshot[]
@@ -489,6 +505,8 @@ function EscalationHeroCard({
   baselineRiskDelta: number | null
   baselineAlertDelta: number | null
   clinicalSummary: string | null
+  urgencyReason: string | null
+  confidence: "high" | "moderate" | "low" | null
 }) {
   const currentSnapshot = snapshots[snapshots.length - 1]
   const breaches = getThresholdBreaches(getCurrentVitals(patient, liveReading), thresholds)
@@ -510,6 +528,15 @@ function EscalationHeroCard({
               </CardTitle>
               <ProfileBadge profile={patient.profile_type} />
               <StatusBadge label={escalationState.title} tone={escalationState.tone} />
+              {confidence && (
+                <Badge variant="outline" className={cn("text-xs",
+                  confidence === "high" ? "border-emerald-500/30 text-emerald-600 dark:text-emerald-400" :
+                  confidence === "moderate" ? "border-amber-500/30 text-amber-600 dark:text-amber-400" :
+                  "border-muted-foreground/30 text-muted-foreground"
+                )}>
+                  {confidence} confidence
+                </Badge>
+              )}
               {selectedBaseline && (
                 <Badge variant="outline" className="text-xs">
                   vs {selectedBaseline.label}
@@ -523,6 +550,11 @@ function EscalationHeroCard({
                   ? `${escalationState.description} Relative to ${selectedBaseline.label.toLowerCase()}, the current window shows a clinically meaningful shift in burden and trajectory.`
                   : escalationState.description}
             </CardDescription>
+            {urgencyReason && urgencyReason !== clinicalSummary && (
+              <p className="max-w-3xl text-xs leading-relaxed text-muted-foreground mt-1 italic">
+                {urgencyReason}
+              </p>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-2 text-sm md:min-w-[320px]">
             <WorkbenchMetric
@@ -640,9 +672,11 @@ function WhyNowCard({
 function RecommendedActionsCard({
   patient,
   actions,
+  workflowRecommendation,
 }: {
   patient: Patient360
   actions: RecommendedAction[]
+  workflowRecommendation?: string | null
 }) {
   const displayActions: Array<{ title: string; description: string; source?: string | null }> =
     actions.length > 0
@@ -661,6 +695,16 @@ function RecommendedActionsCard({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
+        {workflowRecommendation && (
+          <div className="rounded-lg border-2 border-primary/20 bg-primary/5 p-3">
+            <p className="text-xs font-medium uppercase tracking-wide text-primary mb-1">
+              Care Pathway
+            </p>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              {workflowRecommendation}
+            </p>
+          </div>
+        )}
         {displayActions.map((action, index) => (
           <div key={index} className="flex items-start gap-3 rounded-lg border bg-muted/30 p-3">
             <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
@@ -941,10 +985,12 @@ function TrajectoryCard({
   snapshots,
   profileType,
   selectedBaseline,
+  trajectoryAssessment,
 }: {
   snapshots: LongitudinalSnapshot[]
   profileType: string
   selectedBaseline: LongitudinalSnapshot | null
+  trajectoryAssessment?: TrajectoryAssessment | null
 }) {
   const trends = snapshots.map((s) => s.trend_vs_previous)
   const worseningCount = trends.filter((t) => t === "worsening").length
@@ -954,7 +1000,26 @@ function TrajectoryCard({
   let overallColor: string
   let OverallIcon: React.ComponentType<{ className?: string }>
 
-  if (worseningCount >= 3) {
+  if (trajectoryAssessment) {
+    const dir = trajectoryAssessment.direction
+    if (dir === "deteriorating") {
+      overallLabel = "Deteriorating"
+      overallColor = "text-destructive"
+      OverallIcon = TrendingDown
+    } else if (dir === "improving") {
+      overallLabel = "Improving"
+      overallColor = "text-emerald-500"
+      OverallIcon = TrendingUp
+    } else if (dir === "fluctuating") {
+      overallLabel = "Fluctuating"
+      overallColor = "text-orange-500"
+      OverallIcon = TrendingDown
+    } else {
+      overallLabel = "Stable trajectory"
+      overallColor = "text-muted-foreground"
+      OverallIcon = Minus
+    }
+  } else if (worseningCount >= 3) {
     overallLabel = "Deteriorating over 6 months"
     overallColor = "text-destructive"
     OverallIcon = TrendingDown
@@ -998,7 +1063,21 @@ function TrajectoryCard({
           <OverallIcon className={cn("h-5 w-5", overallColor)} />
           <span className={cn("text-lg font-semibold", overallColor)}>{overallLabel}</span>
           <ProfileBadge profile={profileType} />
+          {trajectoryAssessment && (
+            <Badge variant="outline" className={cn("text-xs",
+              trajectoryAssessment.confidence === "high" ? "border-emerald-500/30 text-emerald-600" :
+              trajectoryAssessment.confidence === "moderate" ? "border-amber-500/30 text-amber-600" :
+              "border-muted-foreground/30"
+            )}>
+              {trajectoryAssessment.confidence} confidence
+            </Badge>
+          )}
         </div>
+        {trajectoryAssessment && (
+          <p className="text-sm text-muted-foreground leading-relaxed mb-4">
+            {trajectoryAssessment.summary}
+          </p>
+        )}
         <div className="flex items-center gap-2">
           {snapshots.map((s, i) => (
             <React.Fragment key={s.period_key}>
@@ -1548,13 +1627,21 @@ function AlertHistoryChart({ snapshots }: { snapshots: LongitudinalSnapshot[] })
 function ClinicalContextCard({
   snapshots,
   profileType,
+  evidence,
+  chronicContext,
+  careGapContext,
 }: {
   snapshots: LongitudinalSnapshot[]
   profileType: string
+  evidence?: EvidenceItem[]
+  chronicContext?: ChronicContextFactor[]
+  careGapContext?: CareGapContext[]
 }) {
   const first = snapshots[0]
   const last = snapshots[snapshots.length - 1]
   if (!first || !last) return null
+
+  const hasBackendContext = (evidence && evidence.length > 0) || (chronicContext && chronicContext.length > 0)
 
   const riskDelta = last.risk_score - first.risk_score
   const hrFirst = first.vitals_summary.heart_rate?.avg ?? 0
@@ -1577,50 +1664,151 @@ function ClinicalContextCard({
           Clinical Insights
         </CardTitle>
         <CardDescription>
-          Key observations from the longitudinal analysis
+          {hasBackendContext
+            ? "Backend-derived evidence and chronic context for this patient"
+            : "Key observations from the longitudinal analysis"}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid gap-3 md:grid-cols-2">
-          <InsightItem
-            icon={Shield}
-            title="Risk Progression"
-            description={
-              riskDelta > 10
-                ? `Risk score increased by ${riskDelta} points over 6 months (${first.risk_score} → ${last.risk_score}), indicating significant clinical deterioration requiring intervention.`
-                : riskDelta < -5
-                  ? `Risk score improved by ${Math.abs(riskDelta)} points (${first.risk_score} → ${last.risk_score}), suggesting treatment effectiveness.`
-                  : `Risk score remained relatively stable (${first.risk_score} → ${last.risk_score}), consistent with maintained clinical status.`
-            }
-          />
-          <InsightItem
-            icon={Heart}
-            title="Heart Rate Trend"
-            description={
-              hrLast - hrFirst > 5
-                ? `Average HR increased from ${hrFirst} to ${hrLast} bpm, a ${((hrLast - hrFirst) / hrFirst * 100).toFixed(0)}% rise that may indicate cardiovascular stress or medication changes.`
-                : `Average HR stable around ${hrLast} bpm across the observation period.`
-            }
-          />
-          <InsightItem
-            icon={ActivityIcon}
-            title="Oxygenation Status"
-            description={
-              spo2First - spo2Last > 1.5
-                ? `SpO2 declined from ${spo2First}% to ${spo2Last}%, a clinically meaningful drop warranting respiratory assessment.`
-                : `SpO2 maintained at ${spo2Last}%, within acceptable range for this patient's profile.`
-            }
-          />
-          <InsightItem
-            icon={AlertTriangle}
-            title="Alert Escalation"
-            description={
-              totalAlertsLast > totalAlertsFirst * 2
-                ? `Alert frequency escalated from ${totalAlertsFirst} to ${totalAlertsLast} per period, with ${last.alert_frequency.critical} critical alerts in the current window.`
-                : `Alert frequency ${totalAlertsLast <= totalAlertsFirst ? "remained stable or decreased" : "slightly increased"} across the observation period.`
-            }
-          />
-        </div>
+        {/* Evidence chain from backend */}
+        {evidence && evidence.length > 0 && (
+          <div>
+            <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
+              <Shield className="h-3.5 w-3.5 text-primary" />
+              Supporting Evidence
+            </h4>
+            <div className="grid gap-2">
+              {evidence.map((item, i) => (
+                <div key={i} className="flex items-start gap-3 rounded-md border bg-background p-3">
+                  <Badge
+                    variant="outline"
+                    className={cn("text-[10px] shrink-0 mt-0.5",
+                      item.significance === "high"
+                        ? "border-destructive/30 text-destructive"
+                        : item.significance === "moderate"
+                          ? "border-amber-500/30 text-amber-600 dark:text-amber-400"
+                          : ""
+                    )}
+                  >
+                    {item.category.replace("_", " ")}
+                  </Badge>
+                  <div className="space-y-0.5 min-w-0">
+                    <p className="text-xs leading-relaxed text-muted-foreground">{item.description}</p>
+                    {item.source_rule && (
+                      <p className="text-[10px] text-muted-foreground/70">
+                        Rule: {item.source_rule}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Chronic context from backend */}
+        {chronicContext && chronicContext.length > 0 && (
+          <div>
+            <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
+              <Stethoscope className="h-3.5 w-3.5 text-primary" />
+              Why Context Modifies Interpretation
+            </h4>
+            <div className="grid gap-2 md:grid-cols-2">
+              {chronicContext.map((factor, i) => (
+                <div key={i} className="flex items-start gap-3 rounded-md border bg-background p-3">
+                  <div className="space-y-1 min-w-0">
+                    <div className="text-sm font-medium">{factor.factor}</div>
+                    <p className="text-xs leading-relaxed text-muted-foreground">{factor.clinical_impact}</p>
+                    {factor.relevant_vitals.length > 0 && (
+                      <div className="flex gap-1 flex-wrap">
+                        {factor.relevant_vitals.map((v) => (
+                          <Badge key={v} variant="outline" className="text-[9px]">
+                            {v.replace("_", " ")}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Care gap context from backend */}
+        {careGapContext && careGapContext.length > 0 && (
+          <div>
+            <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
+              <Clock className="h-3.5 w-3.5 text-primary" />
+              Why Care Gaps Matter Now
+            </h4>
+            <div className="grid gap-2">
+              {careGapContext.map((gap, i) => (
+                <div key={i} className="rounded-md border bg-background p-3 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">{gap.measure_name}</span>
+                    <Badge variant="outline" className="text-[10px]">{gap.hedis_measure}</Badge>
+                    {gap.days_overdue > 0 && (
+                      <Badge variant="outline" className="text-[10px] border-destructive/30 text-destructive">
+                        {gap.days_overdue}d overdue
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{gap.priority_reason}</p>
+                  {gap.wearable_correlation && (
+                    <p className="text-xs text-primary/80 leading-relaxed italic">
+                      {gap.wearable_correlation}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Fallback: frontend-derived insights when no backend context */}
+        {!hasBackendContext && (
+          <div className="grid gap-3 md:grid-cols-2">
+            <InsightItem
+              icon={Shield}
+              title="Risk Progression"
+              description={
+                riskDelta > 10
+                  ? `Risk score increased by ${riskDelta} points over 6 months (${first.risk_score} → ${last.risk_score}), indicating significant clinical deterioration requiring intervention.`
+                  : riskDelta < -5
+                    ? `Risk score improved by ${Math.abs(riskDelta)} points (${first.risk_score} → ${last.risk_score}), suggesting treatment effectiveness.`
+                    : `Risk score remained relatively stable (${first.risk_score} → ${last.risk_score}), consistent with maintained clinical status.`
+              }
+            />
+            <InsightItem
+              icon={Heart}
+              title="Heart Rate Trend"
+              description={
+                hrLast - hrFirst > 5
+                  ? `Average HR increased from ${hrFirst} to ${hrLast} bpm, a ${((hrLast - hrFirst) / hrFirst * 100).toFixed(0)}% rise that may indicate cardiovascular stress or medication changes.`
+                  : `Average HR stable around ${hrLast} bpm across the observation period.`
+              }
+            />
+            <InsightItem
+              icon={ActivityIcon}
+              title="Oxygenation Status"
+              description={
+                spo2First - spo2Last > 1.5
+                  ? `SpO2 declined from ${spo2First}% to ${spo2Last}%, a clinically meaningful drop warranting respiratory assessment.`
+                  : `SpO2 maintained at ${spo2Last}%, within acceptable range for this patient's profile.`
+              }
+            />
+            <InsightItem
+              icon={AlertTriangle}
+              title="Alert Escalation"
+              description={
+                totalAlertsLast > totalAlertsFirst * 2
+                  ? `Alert frequency escalated from ${totalAlertsFirst} to ${totalAlertsLast} per period, with ${last.alert_frequency.critical} critical alerts in the current window.`
+                  : `Alert frequency ${totalAlertsLast <= totalAlertsFirst ? "remained stable or decreased" : "slightly increased"} across the observation period.`
+              }
+            />
+          </div>
+        )}
 
         {/* Period notes timeline */}
         <div className="border-t pt-4">

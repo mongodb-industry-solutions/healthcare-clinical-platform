@@ -142,6 +142,45 @@ class BaselineVitalDelta(BaseModel):
     significance: str
 
 
+class EvidenceItem(BaseModel):
+    """A single piece of evidence supporting the clinical interpretation."""
+    category: str = Field(
+        description="threshold_breach | baseline_drift | alert | care_gap | trend",
+    )
+    description: str
+    vital: Optional[str] = None
+    source_rule: Optional[str] = None
+    significance: str = "moderate"
+
+
+class ChronicContextFactor(BaseModel):
+    """How a chronic condition or medication modifies clinical interpretation."""
+    factor: str
+    clinical_impact: str
+    relevant_vitals: list[str] = []
+    source_flag: str
+
+
+class CareGapContext(BaseModel):
+    """Why a specific care gap matters for this patient right now."""
+    hedis_measure: str
+    measure_name: str
+    status: str
+    days_overdue: int = 0
+    priority_reason: str
+    wearable_correlation: Optional[str] = None
+
+
+class TrajectoryAssessment(BaseModel):
+    """Overall clinical trajectory over the observation period."""
+    direction: str = Field(
+        description="deteriorating | improving | stable | fluctuating",
+    )
+    confidence: str = Field(description="high | moderate | low")
+    summary: str
+    key_transitions: list[str] = []
+
+
 class LongitudinalResponse(BaseModel):
     """Full longitudinal trend analysis for a patient."""
     patient_id: str
@@ -159,6 +198,13 @@ class LongitudinalResponse(BaseModel):
     clinical_summary: Optional[str] = None
     baseline_vital_deltas: list[BaselineVitalDelta] = []
     recommended_actions: list[RecommendedAction] = []
+    urgency_reason: Optional[str] = None
+    evidence: list[EvidenceItem] = []
+    chronic_context: list[ChronicContextFactor] = []
+    care_gap_context: list[CareGapContext] = []
+    trajectory_assessment: Optional[TrajectoryAssessment] = None
+    workflow_recommendation: Optional[str] = None
+    confidence: Optional[str] = None
     aggregation_ms: Optional[int] = None
     pipeline_display: Optional[str] = None
 

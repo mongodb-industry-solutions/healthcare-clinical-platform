@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -55,10 +57,14 @@ class SimulationWorker:
         db: MongoDBConnector,
         interval_seconds: int = 5,
         cds_every_n_ticks: int = 3,
+        cds_batch_size: int = 5,
+        cds_requeue_cooldown_seconds: int = 30,
     ):
         self._db = db
         self._interval = interval_seconds
         self._cds_cadence = cds_every_n_ticks
+        self._cds_batch_size = cds_batch_size
+        self._cds_requeue_cooldown_seconds = cds_requeue_cooldown_seconds
 
         self._patients: dict[str, PatientMeta] = {}
         self._last_readings: dict[str, dict[str, Any]] = {}
@@ -66,15 +72,24 @@ class SimulationWorker:
 
         self._event_queue: asyncio.Queue = asyncio.Queue(maxsize=2000)
         self._task: Optional[asyncio.Task] = None
+        self._cds_task: Optional[asyncio.Task] = None
         self._tick_count = 0
         self._started_at: Optional[float] = None
+        self._accepting_cds = False
+        self._cds_pending_order: deque[str] = deque()
+        self._cds_pending_lookup: set[str] = set()
+        self._cds_last_enqueued_at: dict[str, float] = {}
+        self._cds_lock = threading.Lock()
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
     async def start(self, interval_seconds: Optional[int] = None) -> dict[str, Any]:
-        if self._task and not self._task.done():
+        if (
+            (self._task and not self._task.done()) or
+            (self._cds_task and not self._cds_task.done())
+        ):
             return {"status": "already_running", "tick_count": self._tick_count}
 
         if interval_seconds is not None:
@@ -82,13 +97,20 @@ class SimulationWorker:
 
         self._tick_count = 0
         self._started_at = time.monotonic()
+        self._accepting_cds = True
+        with self._cds_lock:
+            self._cds_pending_order.clear()
+            self._cds_pending_lookup.clear()
+            self._cds_last_enqueued_at.clear()
 
         await asyncio.get_running_loop().run_in_executor(None, self._load_patients)
 
         if not self._patients:
+            self._accepting_cds = False
             return {"status": "no_patients", "patient_count": 0}
 
         self._task = asyncio.create_task(self._run_loop())
+        self._cds_task = asyncio.create_task(self._run_cds_loop())
         logger.info(
             "Simulation started: %d patients, %ds interval, %d-min auto-stop",
             len(self._patients), self._interval, _MAX_DURATION_SECONDS // 60,
@@ -101,15 +123,30 @@ class SimulationWorker:
         }
 
     async def stop(self) -> dict[str, Any]:
-        if not self._task or self._task.done():
+        if (not self._task or self._task.done()) and (not self._cds_task or self._cds_task.done()):
             return {"status": "not_running"}
 
-        self._task.cancel()
-        try:
-            await self._task
-        except asyncio.CancelledError:
-            pass
+        self._accepting_cds = False
+
+        if self._task and not self._task.done():
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+
+        if self._cds_task and not self._cds_task.done():
+            self._cds_task.cancel()
+            try:
+                await self._cds_task
+            except asyncio.CancelledError:
+                pass
+
         self._task = None
+        self._cds_task = None
+        with self._cds_lock:
+            self._cds_pending_order.clear()
+            self._cds_pending_lookup.clear()
 
         self._push_event("stopped", {
             "reason": "manual",
@@ -146,6 +183,7 @@ class SimulationWorker:
         try:
             while True:
                 if self._started_at and (time.monotonic() - self._started_at) >= _MAX_DURATION_SECONDS:
+                    self._accepting_cds = False
                     self._push_event("stopped", {
                         "reason": "auto_stop",
                         "tick_count": self._tick_count,
@@ -159,6 +197,29 @@ class SimulationWorker:
         except asyncio.CancelledError:
             raise
 
+    async def _run_cds_loop(self) -> None:
+        loop = asyncio.get_running_loop()
+        try:
+            while self._accepting_cds or self._pending_cds_count() > 0:
+                patient_ids = self._drain_cds_patients(self._cds_batch_size)
+                if not patient_ids:
+                    await asyncio.sleep(0.2)
+                    continue
+
+                cds_started_at = time.perf_counter()
+                await loop.run_in_executor(None, self._run_cds_batch, patient_ids)
+                cds_ms = (time.perf_counter() - cds_started_at) * 1000
+                logger.info(
+                    "CDS batch timing | patients=%d pending=%d total=%.1fms",
+                    len(patient_ids),
+                    self._pending_cds_count(),
+                    cds_ms,
+                )
+        except asyncio.CancelledError:
+            raise
+        finally:
+            self._cds_task = None
+
     # ------------------------------------------------------------------
     # Single tick — the critical path
     # ------------------------------------------------------------------
@@ -166,6 +227,7 @@ class SimulationWorker:
     def _tick(self) -> None:
         self._tick_count += 1
         now = datetime.now(timezone.utc)
+        tick_started_at = time.perf_counter()
 
         vitals_coll = self._db.get_collection(VITALS_COLLECTION)
         p360_coll = self._db.get_collection(PATIENT_360_COLLECTION)
@@ -173,6 +235,7 @@ class SimulationWorker:
         new_readings: list[dict[str, Any]] = []
         p360_updates: list[UpdateOne] = []
         breached_pids: list[str] = []
+        generation_started_at = time.perf_counter()
 
         for pid, meta in self._patients.items():
             last = self._last_readings.get(pid, {})
@@ -210,14 +273,23 @@ class SimulationWorker:
             if self._breaches_threshold(reading, meta.thresholds):
                 breached_pids.append(pid)
 
+        generation_ms = (time.perf_counter() - generation_started_at) * 1000
+
+        vitals_insert_ms = 0.0
         if new_readings:
+            vitals_insert_started_at = time.perf_counter()
             vitals_coll.insert_many(new_readings)
+            vitals_insert_ms = (time.perf_counter() - vitals_insert_started_at) * 1000
 
+        p360_update_ms = 0.0
         if p360_updates:
+            p360_update_started_at = time.perf_counter()
             p360_coll.bulk_write(p360_updates, ordered=False)
+            p360_update_ms = (time.perf_counter() - p360_update_started_at) * 1000
 
+        cds_queued = 0
         if breached_pids and (self._tick_count % self._cds_cadence == 0):
-            self._run_cds_batch(breached_pids)
+            cds_queued = self._enqueue_cds_patients(breached_pids)
 
         serializable_readings = []
         for r in new_readings:
@@ -234,6 +306,30 @@ class SimulationWorker:
             "breached_count": len(breached_pids),
             "timestamp": now.isoformat(),
         })
+
+        total_ms = (time.perf_counter() - tick_started_at) * 1000
+        logger.info(
+            "Simulation tick %d timing | patients=%d readings=%d breached=%d cds_queued=%d cds_pending=%d "
+            "generate=%.1fms insert_many=%.1fms bulk_write=%.1fms total=%.1fms",
+            self._tick_count,
+            len(self._patients),
+            len(new_readings),
+            len(breached_pids),
+            cds_queued,
+            self._pending_cds_count(),
+            generation_ms,
+            vitals_insert_ms,
+            p360_update_ms,
+            total_ms,
+        )
+
+        if total_ms > (self._interval * 1000):
+            logger.warning(
+                "Simulation tick %d exceeded interval: total=%.1fms interval=%dms",
+                self._tick_count,
+                total_ms,
+                self._interval * 1000,
+            )
 
     # ------------------------------------------------------------------
     # CDS evaluation (batched, only for breached patients)
@@ -267,6 +363,38 @@ class SimulationWorker:
                 "details": alert_events,
             })
 
+    def _enqueue_cds_patients(self, patient_ids: list[str]) -> int:
+        queued = 0
+        now = time.monotonic()
+        with self._cds_lock:
+            for pid in patient_ids:
+                if pid in self._cds_pending_lookup:
+                    continue
+                last_enqueued_at = self._cds_last_enqueued_at.get(pid)
+                if (
+                    last_enqueued_at is not None and
+                    (now - last_enqueued_at) < self._cds_requeue_cooldown_seconds
+                ):
+                    continue
+                self._cds_pending_order.append(pid)
+                self._cds_pending_lookup.add(pid)
+                self._cds_last_enqueued_at[pid] = now
+                queued += 1
+        return queued
+
+    def _drain_cds_patients(self, max_items: int) -> list[str]:
+        drained: list[str] = []
+        with self._cds_lock:
+            while self._cds_pending_order and len(drained) < max_items:
+                pid = self._cds_pending_order.popleft()
+                self._cds_pending_lookup.discard(pid)
+                drained.append(pid)
+        return drained
+
+    def _pending_cds_count(self) -> int:
+        with self._cds_lock:
+            return len(self._cds_pending_order)
+
     # ------------------------------------------------------------------
     # Threshold breach detection (in-memory, no DB)
     # ------------------------------------------------------------------
@@ -294,7 +422,7 @@ class SimulationWorker:
 
     def _load_patients(self) -> None:
         p360_coll = self._db.get_collection(PATIENT_360_COLLECTION)
-        vitals_coll = self._db.get_collection(VITALS_COLLECTION)
+        started_at = time.monotonic()
 
         projection = {
             "_id": 0,
@@ -302,6 +430,7 @@ class SimulationWorker:
             "flags": 1,
             "personalized_thresholds": 1,
             "simulation_pattern": 1,
+            "vitals_summary.latest": 1,
         }
         docs = list(p360_coll.find({}, projection))
         self._patients.clear()
@@ -318,28 +447,18 @@ class SimulationWorker:
                 pattern=doc.get("simulation_pattern", "deteriorating"),
                 thresholds=doc.get("personalized_thresholds", {}),
             )
-
-        patient_ids = list(self._patients.keys())
-        if not patient_ids:
-            return
-
-        pipeline = [
-            {"$match": {"patient_id": {"$in": patient_ids}}},
-            {"$sort": {"timestamp": -1}},
-            {"$group": {
-                "_id": "$patient_id",
-                "doc": {"$first": "$$ROOT"},
-            }},
-        ]
-        for result in vitals_coll.aggregate(pipeline):
-            pid = result["_id"]
-            doc = result["doc"]
-            doc.pop("_id", None)
-            self._last_readings[pid] = doc
+            latest = doc.get("vitals_summary", {}).get("latest")
+            if latest:
+                # Prime the simulator from the already-materialized Patient 360 snapshot
+                # instead of scanning the full time-series collection before the first tick.
+                self._last_readings[pid] = {
+                    "patient_id": pid,
+                    **latest,
+                }
 
         logger.info(
-            "Loaded %d patients, %d with prior vitals",
-            len(self._patients), len(self._last_readings),
+            "Loaded %d patients, %d with prior vitals summary in %.2fs",
+            len(self._patients), len(self._last_readings), time.monotonic() - started_at,
         )
 
     def reload_patients(self) -> None:

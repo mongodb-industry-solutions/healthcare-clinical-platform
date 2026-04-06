@@ -1,8 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { toast } from "sonner"
-import { Timer, AlertTriangle } from "lucide-react"
+import { Timer } from "lucide-react"
 import { useDemo } from "@/lib/demo-context"
 import {
   AlertDialog,
@@ -53,10 +52,9 @@ interface SimulationContextValue {
 const SimulationContext = React.createContext<SimulationContextValue | null>(null)
 
 const MAX_ALERTS = 50
-const TOAST_DEBOUNCE_MS = 3000
 
 export function SimulationProvider({ children }: { children: React.ReactNode }) {
-  const { step, dataVersion, bumpDataVersion } = useDemo()
+  const { step, bumpDataVersion } = useDemo()
 
   const [isRunning, setIsRunning] = React.useState(false)
   const [tickCount, setTickCount] = React.useState(0)
@@ -66,8 +64,6 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
   const [stoppedInfo, setStoppedInfo] = React.useState<{ reason: string; tickCount: number; message: string } | null>(null)
 
   const eventSourceRef = React.useRef<EventSource | null>(null)
-  const pendingCriticalRef = React.useRef<AlertNotification[]>([])
-  const toastTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const dataVersionTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const unreadAlertCount = React.useMemo(
@@ -85,25 +81,6 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
     )
   }, [])
 
-  const flushPendingToasts = React.useCallback(() => {
-    const pending = pendingCriticalRef.current
-    if (pending.length === 0) return
-    pendingCriticalRef.current = []
-
-    if (pending.length === 1) {
-      const a = pending[0]
-      toast.error(`${a.patient_name} — ${a.title}`, {
-        description: a.reasoning || a.severity,
-        duration: 6000,
-      })
-    } else {
-      toast.error(`${pending.length} critical alerts detected`, {
-        description: "Check the notification panel for details",
-        duration: 6000,
-      })
-    }
-  }, [])
-
   const addAlerts = React.useCallback(
     (newAlerts: AlertNotification[]) => {
       setRecentAlerts((prev) => {
@@ -111,18 +88,11 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
         return combined.slice(0, MAX_ALERTS)
       })
 
-      const criticals = newAlerts.filter((a) => a.severity === "critical")
-      if (criticals.length > 0) {
-        pendingCriticalRef.current.push(...criticals)
-        if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
-        toastTimerRef.current = setTimeout(flushPendingToasts, TOAST_DEBOUNCE_MS)
-      }
-
       // Debounced data refresh so dashboard KPIs, sidebar badges, etc. stay current
       if (dataVersionTimerRef.current) clearTimeout(dataVersionTimerRef.current)
       dataVersionTimerRef.current = setTimeout(bumpDataVersion, 2000)
     },
-    [flushPendingToasts, bumpDataVersion],
+    [bumpDataVersion],
   )
 
   // Use a ref for addAlerts so the SSE effect doesn't reconnect when the callback identity changes
