@@ -103,7 +103,7 @@ type HospitalRiskSummary = {
 
 export function DashboardOverview() {
   const { dataVersion } = useDemo()
-  const { isRunning, tickCount, patientCount, liveReadings, recentAlerts } = useSimulation()
+  const { isRunning, tickCount, patientCount, liveReadings, recentAlerts, sessionAlertCount } = useSimulation()
   const [patients, setPatients] = React.useState<Patient360[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -149,9 +149,10 @@ export function DashboardOverview() {
       patientCount,
       liveReadings: liveReadingsList,
       recentAlerts,
+      sessionAlertCount,
       totalPatients,
     }),
-    [isRunning, tickCount, patientCount, liveReadingsList, recentAlerts, totalPatients],
+    [isRunning, tickCount, patientCount, liveReadingsList, recentAlerts, sessionAlertCount, totalPatients],
   )
 
   const topEscalation = React.useMemo(
@@ -906,6 +907,7 @@ function buildLiveMetrics({
   patientCount,
   liveReadings,
   recentAlerts,
+  sessionAlertCount,
   totalPatients,
 }: {
   isRunning: boolean
@@ -913,13 +915,14 @@ function buildLiveMetrics({
   patientCount: number
   liveReadings: LiveReading[]
   recentAlerts: AlertNotification[]
+  sessionAlertCount: number
   totalPatients: number
 }) {
   const monitoredCount = isRunning
     ? Math.max(patientCount, liveReadings.length, totalPatients)
     : totalPatients
   const updatedLastMinute = liveReadings.filter((reading) => isWithinWindow(reading.timestamp, LIVE_WINDOW_MS)).length
-  const newAlertsThisSession = recentAlerts.length
+  const newAlertsThisSession = sessionAlertCount
   const newCriticalLastFive = recentAlerts.filter(
     (alert) => alert.severity === "critical" && isWithinWindow(alert.timestamp, ALERT_WINDOW_MS),
   ).length
@@ -1116,13 +1119,13 @@ function buildLiveEventFeed(
 
 function buildFallbackActivity(patients: Patient360[]): LiveEventItem[] {
   return patients
-    .flatMap((patient) => {
+    .flatMap<LiveEventItem>((patient) => {
       const primaryAlert = patient.active_alerts[0]
       if (primaryAlert) {
         return [
           {
             id: `fallback-${primaryAlert.alert_id}`,
-            severity: primaryAlert.severity,
+            severity: primaryAlert.severity as Severity,
             title: `${patient.demographics.name}: ${primaryAlert.title}`,
             detail: primaryAlert.reasoning,
             timestamp: primaryAlert.created_at,

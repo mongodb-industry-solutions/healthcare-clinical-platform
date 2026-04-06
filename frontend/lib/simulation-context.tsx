@@ -44,6 +44,7 @@ interface SimulationContextValue {
   patientCount: number
   liveReadings: Map<string, LiveReading>
   recentAlerts: AlertNotification[]
+  sessionAlertCount: number
   unreadAlertCount: number
   markAlertsRead: () => void
   markAlertRead: (id: string) => void
@@ -61,6 +62,7 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
   const [patientCount, setPatientCount] = React.useState(0)
   const [liveReadings, setLiveReadings] = React.useState<Map<string, LiveReading>>(new Map())
   const [recentAlerts, setRecentAlerts] = React.useState<AlertNotification[]>([])
+  const [sessionAlertCount, setSessionAlertCount] = React.useState(0)
   const [stoppedInfo, setStoppedInfo] = React.useState<{ reason: string; tickCount: number; message: string } | null>(null)
 
   const eventSourceRef = React.useRef<EventSource | null>(null)
@@ -87,6 +89,7 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
         const combined = [...newAlerts, ...prev]
         return combined.slice(0, MAX_ALERTS)
       })
+      setSessionAlertCount((prev) => prev + newAlerts.length)
 
       // Debounced data refresh so dashboard KPIs, sidebar badges, etc. stay current
       if (dataVersionTimerRef.current) clearTimeout(dataVersionTimerRef.current)
@@ -103,12 +106,21 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
   React.useEffect(() => {
     if (step !== "ready") return
 
+    setStoppedInfo(null)
+    setSessionAlertCount(0)
+    setRecentAlerts([])
+    setLiveReadings(new Map())
+    setTickCount(0)
+    setPatientCount(0)
+    setIsRunning(false)
+
     const es = new EventSource(`${API_URL}/simulation/stream`)
     eventSourceRef.current = es
 
     es.addEventListener("connected", (e) => {
       try {
         const data = JSON.parse(e.data)
+        setStoppedInfo(null)
         setIsRunning(data.running ?? false)
         setPatientCount(data.patient_count ?? 0)
         setTickCount(data.tick_count ?? 0)
@@ -214,11 +226,12 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
       patientCount,
       liveReadings,
       recentAlerts,
+      sessionAlertCount,
       unreadAlertCount,
       markAlertsRead,
       markAlertRead,
     }),
-    [isRunning, tickCount, patientCount, liveReadings, recentAlerts, unreadAlertCount, markAlertsRead, markAlertRead],
+    [isRunning, tickCount, patientCount, liveReadings, recentAlerts, sessionAlertCount, unreadAlertCount, markAlertsRead, markAlertRead],
   )
 
   return (

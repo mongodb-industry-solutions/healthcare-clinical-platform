@@ -102,6 +102,7 @@ class SimulationWorker:
             self._cds_pending_order.clear()
             self._cds_pending_lookup.clear()
             self._cds_last_enqueued_at.clear()
+        self._clear_event_queue()
 
         await asyncio.get_running_loop().run_in_executor(None, self._load_patients)
 
@@ -394,6 +395,13 @@ class SimulationWorker:
     def _pending_cds_count(self) -> int:
         with self._cds_lock:
             return len(self._cds_pending_order)
+
+    def _clear_event_queue(self) -> None:
+        while True:
+            try:
+                self._event_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
 
     # ------------------------------------------------------------------
     # Threshold breach detection (in-memory, no DB)
