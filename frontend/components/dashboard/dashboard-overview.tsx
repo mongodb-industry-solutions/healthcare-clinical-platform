@@ -98,7 +98,23 @@ type HospitalRiskSummary = {
   critical: number
   high: number
   deteriorating: number
-  overdue: number
+  careGapPressure: number
+}
+
+type ClinicalSummaryMetrics = {
+  emergingRiskCount: number
+  activeHighAcuityPatientsCount: number
+  criticalEscalationsCount: number
+  highEscalationsCount: number
+  contextElevatedCareGapCount: number
+  contextElevatedPatientCount: number
+}
+
+type CardTrend = {
+  direction: "up" | "down" | "neutral"
+  value: number
+  label: string
+  format?: "delta" | "plain"
 }
 
 export function DashboardOverview() {
@@ -125,21 +141,13 @@ export function DashboardOverview() {
   )
 
   const totalPatients = patients.length
-  const criticalAlerts = patients.reduce(
-    (sum, patient) => sum + patient.active_alerts.filter((alert) => alert.severity === "critical").length,
-    0,
-  )
-  const highAlerts = patients.reduce(
-    (sum, patient) => sum + patient.active_alerts.filter((alert) => alert.severity === "high").length,
-    0,
-  )
   const openCareGaps = patients.reduce(
     (sum, patient) => sum + patient.care_gaps.filter((gap) => gap.status === "open").length,
     0,
   )
-  const overdueGaps = patients.reduce(
-    (sum, patient) => sum + patient.care_gaps.filter((gap) => gap.days_overdue > 0).length,
-    0,
+  const hospitalCount = React.useMemo(
+    () => new Set(patients.map((patient) => patient.source_hospital)).size,
+    [patients],
   )
 
   const liveMetrics = React.useMemo(
@@ -153,6 +161,11 @@ export function DashboardOverview() {
       totalPatients,
     }),
     [isRunning, tickCount, patientCount, liveReadingsList, recentAlerts, sessionAlertCount, totalPatients],
+  )
+
+  const clinicalSummary = React.useMemo(
+    () => buildClinicalSummaryMetrics(patients, liveReadings),
+    [patients, liveReadings],
   )
 
   const topEscalation = React.useMemo(
@@ -172,22 +185,6 @@ export function DashboardOverview() {
 
   const hospitalRisk = React.useMemo(
     () => buildHospitalRiskSummary(patients, liveReadings),
-    [patients, liveReadings],
-  )
-
-  const correlatedCareGaps = React.useMemo(
-    () =>
-      patients.reduce((sum, patient) => {
-        const liveReading = liveReadings.get(patient.patient_id)
-        const livePressure = hasLivePressure(patient, liveReading)
-        if (!livePressure) return sum
-        return (
-          sum +
-          patient.care_gaps.filter(
-            (gap) => gap.status === "open" && (gap.days_overdue > 0 || gap.priority === "high" || gap.priority === "critical"),
-          ).length
-        )
-      }, 0),
     [patients, liveReadings],
   )
 
@@ -212,85 +209,54 @@ export function DashboardOverview() {
   return (
     <div className="flex flex-col gap-6 p-6">
       <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Clinical Monitoring Command Center</h1>
         <p className="text-sm text-muted-foreground">
-          Live command center for incoming vitals, contextual alerts, and operational follow-up.
+          Prioritize deterioration, escalation load, and follow-up burden across connected hospital populations.
         </p>
       </div>
 
       <LiveCommandBar isRunning={isRunning} metrics={liveMetrics} />
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <StatsCard
-          title="Total Patients"
-          value={totalPatients}
-          description={isRunning ? "Population under active monitoring" : "Ready for monitoring"}
+          title="Emerging Risk"
+          value={clinicalSummary.emergingRiskCount}
+          description="Patients showing multi-signal deterioration without an active critical or high alert"
           icon={Users}
-          trend={{
-            direction: liveMetrics[1]?.value !== "0" ? "up" : "neutral",
-            value: parseMetricNumber(liveMetrics[1]?.value),
-            label: "updated in last minute",
-          }}
+          trend={null}
         />
         <StatsCard
-          title="Critical Now"
-          value={criticalAlerts}
-          description="Immediate clinician attention"
+          title="Active Critical/High Patients"
+          value={clinicalSummary.activeHighAcuityPatientsCount}
+          description={`${clinicalSummary.criticalEscalationsCount} critical alerts, ${clinicalSummary.highEscalationsCount} high alerts`}
           icon={AlertTriangle}
-          trend={{
-            direction: parseMetricNumber(liveMetrics[3]?.value) > 0 ? "up" : "neutral",
-            value: parseMetricNumber(liveMetrics[3]?.value),
-            label: "new in last 5 min",
-          }}
+          trend={null}
           variant="critical"
         />
         <StatsCard
-          title="High Now"
-          value={highAlerts}
-          description="Escalations pending review"
-          icon={Activity}
-          trend={{
-            direction:
-              recentAlerts.filter(
-                (alert) => alert.severity === "high" && isWithinWindow(alert.timestamp, ALERT_WINDOW_MS),
-              ).length > 0
-                ? "up"
-                : "neutral",
-            value: recentAlerts.filter(
-              (alert) => alert.severity === "high" && isWithinWindow(alert.timestamp, ALERT_WINDOW_MS),
-            ).length,
-            label: "new in last 5 min",
-          }}
-          variant="warning"
-        />
-        <StatsCard
-          title="Care Gaps At Risk"
-          value={openCareGaps}
-          description={`${overdueGaps} overdue across the population`}
+          title="Care Gaps Elevated by Context"
+          value={clinicalSummary.contextElevatedCareGapCount}
+          description={`${clinicalSummary.contextElevatedPatientCount} patients currently carrying combined burden`}
           icon={ClipboardList}
-          trend={{
-            direction: correlatedCareGaps > 0 ? "up" : "neutral",
-            value: correlatedCareGaps,
-            label: "paired with live drift",
-          }}
+          trend={null}
         />
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.45fr_1fr]">
+      <div className="grid gap-6 xl:grid-cols-[1.35fr_0.95fr]">
         <TopEscalationCard candidate={topEscalation} />
-        <ContextMattersCard pair={contextPair} liveReadings={liveReadings} />
+        <HospitalRiskCard rows={hospitalRisk} />
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <LiveEventFeedCard events={liveFeed} />
-        <HospitalRiskCard rows={hospitalRisk} totalPatients={totalPatients} />
+        <ContextMattersCard pair={contextPair} liveReadings={liveReadings} />
       </div>
 
       <MongoValueCard
         patientCount={totalPatients}
-        hospitalCount={new Set(patients.map((patient) => patient.source_hospital)).size}
+        hospitalCount={hospitalCount}
         activeReadings={liveReadingsList.length}
-        alertsCount={criticalAlerts + highAlerts}
+        alertsCount={clinicalSummary.criticalEscalationsCount + clinicalSummary.highEscalationsCount}
         openCareGapCount={openCareGaps}
         tickCount={tickCount}
         patientCountDuringRun={patientCount}
@@ -316,7 +282,7 @@ function LiveCommandBar({
               Live Command Bar
             </CardTitle>
             <CardDescription>
-              What is changing right now across connected patients and hospital feeds.
+              What is changing right now across monitored patients and connected hospital populations.
             </CardDescription>
           </div>
           <Badge
@@ -359,7 +325,7 @@ function TopEscalationCard({
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <HeartPulse className="h-4 w-4 text-primary" />
-            Top Escalation
+            Priority Review
           </CardTitle>
           <CardDescription>No clinically urgent escalations at the moment.</CardDescription>
         </CardHeader>
@@ -369,6 +335,7 @@ function TopEscalationCard({
 
   const { patient, primaryAlert, liveReading, thresholdBreaches, liveSignals, suggestedActions, score } = candidate
   const topContext = getPatientContextSummary(patient)
+  const contextBadges = getPatientContextBadges(patient)
 
   return (
     <Card className="border-destructive/30 bg-gradient-to-br from-destructive/5 via-background to-background">
@@ -376,9 +343,13 @@ function TopEscalationCard({
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
-              <CardTitle className="text-base">Top Escalation</CardTitle>
+              <CardTitle className="text-base">Priority Review</CardTitle>
               <Badge variant="destructive">Priority {score}</Badge>
-              <Badge variant="outline">{patient.profile_type}</Badge>
+              {contextBadges.slice(0, 3).map((badge) => (
+                <Badge key={badge} variant="outline">
+                  {badge}
+                </Badge>
+              ))}
             </div>
             <div>
               <p className="text-xl font-semibold">{patient.demographics.name}</p>
@@ -437,7 +408,7 @@ function TopEscalationCard({
 
         <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
           <div className="rounded-lg border bg-background/80 p-4">
-            <p className="text-sm font-medium">Why this patient is prioritized</p>
+            <p className="text-sm font-medium">Clinical drivers</p>
             <div className="mt-3 flex flex-wrap gap-2">
               {liveSignals.slice(0, 5).map((signal) => (
                 <Badge key={signal} variant="outline" className="bg-background">
@@ -466,7 +437,7 @@ function TopEscalationCard({
           </div>
 
           <div className="rounded-lg border bg-background/80 p-4">
-            <p className="text-sm font-medium">Suggested next actions</p>
+            <p className="text-sm font-medium">Recommended next actions</p>
             <div className="mt-3 space-y-2">
               {suggestedActions.map((action) => (
                 <div
@@ -501,9 +472,9 @@ function ContextMattersCard({
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <GitCompare className="h-4 w-4 text-primary" />
-            Why Context Matters
+            Patient 360 Comparison
           </CardTitle>
-          <CardDescription>Need at least one contextual and one healthy patient to compare.</CardDescription>
+          <CardDescription>Need at least one higher-context and one lower-risk patient to compare.</CardDescription>
         </CardHeader>
       </Card>
     )
@@ -519,26 +490,23 @@ function ContextMattersCard({
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <GitCompare className="h-4 w-4 text-primary" />
-          Why Context Matters
+          Patient 360 Comparison
         </CardTitle>
         <CardDescription>
-          Similar vitals can lead to different clinical decisions once medications, conditions, and thresholds are applied.
+          Comparable vitals can lead to different escalation paths once chronic conditions, medications, and personalized thresholds are applied.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm text-muted-foreground">
-          Same-ish physiologic signal, different interpretation. That is the core story of the platform.
-        </div>
         <div className="grid gap-3 lg:grid-cols-2">
           <ComparisonPatientCard
-            label="Context-rich patient"
+            label="Higher-risk context"
             patient={pair.contextual}
             reading={contextualReading}
             breaches={contextualBreaches}
             emphasis="escalate"
           />
           <ComparisonPatientCard
-            label="Healthy reference"
+            label="Lower-risk comparator"
             patient={pair.healthy}
             reading={healthyReading}
             breaches={healthyBreaches}
@@ -583,9 +551,7 @@ function ComparisonPatientCard({
       </div>
       <div className="mt-3">
         <p className="font-medium">{patient.demographics.name}</p>
-        <p className="text-sm text-muted-foreground">
-          {patient.profile_type} • {patient.hospital_name}
-        </p>
+        <p className="text-sm text-muted-foreground">{patient.hospital_name}</p>
       </div>
       <p className="mt-3 text-sm">{vitalsSummary}</p>
       <p className="mt-2 text-sm text-muted-foreground">{getPatientContextSummary(patient)}</p>
@@ -601,7 +567,7 @@ function ComparisonPatientCard({
         )}
       </div>
       <div className="mt-3 rounded-md border bg-background px-3 py-2 text-sm">
-        <span className="font-medium">Outcome:</span> {primaryOutcome}
+        <span className="font-medium">Escalation path:</span> {primaryOutcome}
       </div>
     </div>
   )
@@ -615,10 +581,10 @@ function LiveEventFeedCard({ events }: { events: LiveEventItem[] }) {
           <div>
             <CardTitle className="flex items-center gap-2 text-base">
               <Clock3 className="h-4 w-4 text-primary" />
-              What Changed Recently
+              Recent Clinical Changes
             </CardTitle>
             <CardDescription>
-              Incoming alerts, threshold crossings, and care-gap escalations.
+              New alerts, threshold crossings, and care-gap pressure as live data arrives.
             </CardDescription>
           </div>
           <Button variant="ghost" size="sm" asChild>
@@ -672,25 +638,25 @@ function LiveEventFeedCard({ events }: { events: LiveEventItem[] }) {
 
 function HospitalRiskCard({
   rows,
-  totalPatients,
 }: {
   rows: HospitalRiskSummary[]
-  totalPatients: number
 }) {
+  const maxWorkload = Math.max(...rows.map((row) => getHospitalWorkloadScore(row)), 1)
+
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <Activity className="h-4 w-4 text-primary" />
-          Hospital Risk Heatmap
+          Cross-Hospital Burden
         </CardTitle>
         <CardDescription>
-          Which connected systems are carrying the highest alert and follow-up burden.
+          Where escalation load and context-elevated follow-up pressure are concentrated.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         {rows.map((row) => {
-          const intensity = totalPatients > 0 ? Math.round((row.patients / totalPatients) * 100) : 0
+          const intensity = Math.round((getHospitalWorkloadScore(row) / maxWorkload) * 100)
           return (
             <div key={row.id} className="rounded-lg border p-4">
               <div className="flex items-start justify-between gap-3">
@@ -712,9 +678,9 @@ function HospitalRiskCard({
                 />
               </div>
               <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                <HospitalMetric label="High alerts" value={row.high} />
+                <HospitalMetric label="Open escalations" value={row.critical + row.high} />
                 <HospitalMetric label="Deteriorating now" value={row.deteriorating} />
-                <HospitalMetric label="Overdue gaps" value={row.overdue} />
+                <HospitalMetric label="Context-elevated gaps" value={row.careGapPressure} />
                 <HospitalMetric label="Critical now" value={row.critical} />
               </div>
             </div>
@@ -758,48 +724,48 @@ function MongoValueCard({
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <Database className="h-4 w-4 text-primary" />
-          Why MongoDB Here
+          Unified Patient 360
         </CardTitle>
         <CardDescription>
-          The dashboard is reading one operational view that merges hospital context, live vitals, alerts, and care gaps.
+          One operational view combines hospital context, live telemetry, escalations, and follow-up burden.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <ValueChip label="Hospital feeds" value={String(hospitalCount)} detail="Epic, Cerner, and legacy-derived context" />
+          <ValueChip label="Connected hospitals" value={String(hospitalCount)} detail="Epic, Cerner, and legacy-derived context" />
           <ValueChip
-            label="Patient 360 docs"
+            label="Patient 360 views"
             value={String(patientCount)}
-            detail="Denormalized read model for fast clinician queries"
+            detail="Unified records ready for clinical review"
           />
           <ValueChip
-            label="Live vitals seen"
+            label="Live readings handled"
             value={String(approximatedReadings)}
             detail="Approximate readings processed in this run"
           />
           <ValueChip
             label="Contextual workload"
             value={String(alertsCount + openCareGapCount)}
-            detail="Alerts and care gaps unified on the same patient view"
+            detail="Escalations and care gaps visible on the same patient view"
           />
         </div>
         <div className="grid gap-3 lg:grid-cols-3">
           <div className="rounded-lg border p-4">
-            <p className="text-sm font-medium">Unified operational document</p>
+            <p className="text-sm font-medium">Single operational view</p>
             <p className="mt-2 text-sm text-muted-foreground">
-              Each patient view blends demographics, conditions, medications, thresholds, current vitals, active alerts, and care gaps without asking the frontend to perform joins.
+              Each patient view brings demographics, chronic conditions, medications, thresholds, live vitals, active alerts, and care gaps into one place for fast review.
             </p>
           </div>
           <div className="rounded-lg border p-4">
-            <p className="text-sm font-medium">Live plus historical context</p>
+            <p className="text-sm font-medium">Live data interpreted in context</p>
             <p className="mt-2 text-sm text-muted-foreground">
-              Incoming wearable readings show motion, while the stored Patient 360 provides the clinical background needed to interpret the same vital sign differently for each patient.
+              Incoming wearable readings show physiologic change, while the stored patient context explains why the same vital pattern may carry different urgency.
             </p>
           </div>
           <div className="rounded-lg border p-4">
-            <p className="text-sm font-medium">Actionable, not just observable</p>
+            <p className="text-sm font-medium">Clinical and operational burden together</p>
             <p className="mt-2 text-sm text-muted-foreground">
-              The goal is not to count alerts. It is to prioritize what clinicians should do next using context-aware thresholds and operational follow-up state in one place.
+              Escalations and overdue follow-up live on the same operational surface, so teams can triage what is urgent now and what is becoming riskier.
             </p>
           </div>
         </div>
@@ -838,13 +804,11 @@ function StatsCard({
   value: number
   description: string
   icon: React.ComponentType<{ className?: string }>
-  trend: {
-    direction: "up" | "down" | "neutral"
-    value: number
-    label: string
-  } | null
+  trend: CardTrend | null
   variant?: "default" | "critical" | "warning"
 }) {
+  const isPlainTrend = trend?.format === "plain"
+
   return (
     <Card
       className={cn(
@@ -874,7 +838,7 @@ function StatsCard({
           >
             {value}
           </span>
-          {trend && trend.value > 0 && (
+          {trend && trend.value > 0 && !isPlainTrend && (
             <span
               className={cn(
                 "flex items-center text-xs",
@@ -893,7 +857,7 @@ function StatsCard({
         <p className="mt-1 text-xs text-muted-foreground">{description}</p>
         {trend && (
           <p className="mt-1 text-[11px] text-muted-foreground">
-            {trend.value > 0 ? `+${trend.value}` : "0"} {trend.label}
+            {isPlainTrend ? trend.value : trend.value > 0 ? `+${trend.value}` : "0"} {trend.label}
           </p>
         )}
       </CardContent>
@@ -1160,28 +1124,25 @@ function buildHospitalRiskSummary(
   liveReadings: Map<string, LiveReading>,
 ): HospitalRiskSummary[] {
   const hospitals: HospitalRiskSummary[] = [
-    { id: "st_marys", name: "St. Mary's Medical Center", patients: 0, critical: 0, high: 0, deteriorating: 0, overdue: 0 },
-    { id: "regional_general", name: "Regional General Hospital", patients: 0, critical: 0, high: 0, deteriorating: 0, overdue: 0 },
-    { id: "community_health", name: "Community Health Partners", patients: 0, critical: 0, high: 0, deteriorating: 0, overdue: 0 },
+    { id: "st_marys", name: "St. Mary's Medical Center", patients: 0, critical: 0, high: 0, deteriorating: 0, careGapPressure: 0 },
+    { id: "regional_general", name: "Regional General Hospital", patients: 0, critical: 0, high: 0, deteriorating: 0, careGapPressure: 0 },
+    { id: "community_health", name: "Community Health Partners", patients: 0, critical: 0, high: 0, deteriorating: 0, careGapPressure: 0 },
   ]
 
   patients.forEach((patient) => {
+    const liveReading = liveReadings.get(patient.patient_id)
     const target = hospitals.find((row) => row.id === patient.source_hospital)
     if (!target) return
     target.patients += 1
     target.critical += patient.active_alerts.filter((alert) => alert.severity === "critical").length
     target.high += patient.active_alerts.filter((alert) => alert.severity === "high").length
-    target.overdue += patient.care_gaps.filter((gap) => gap.status === "open" && gap.days_overdue > 0).length
-    if (hasLivePressure(patient, liveReadings.get(patient.patient_id))) {
+    target.careGapPressure += getContextElevatedCareGapCount(patient, liveReading)
+    if (hasLivePressure(patient, liveReading)) {
       target.deteriorating += 1
     }
   })
 
-  return hospitals.sort((left, right) => {
-    const leftScore = left.critical * 3 + left.high * 2 + left.deteriorating + left.overdue
-    const rightScore = right.critical * 3 + right.high * 2 + right.deteriorating + right.overdue
-    return rightScore - leftScore
-  })
+  return hospitals.sort((left, right) => getHospitalWorkloadScore(right) - getHospitalWorkloadScore(left))
 }
 
 function getCurrentReading(patient: Patient360, liveReading?: LiveReading): CurrentReading {
@@ -1254,6 +1215,61 @@ function hasLivePressure(patient: Patient360, liveReading?: LiveReading) {
   return getThresholdBreaches(patient, liveReading).length > 0 || getVitalsRiskSignals(patient, liveReading).length >= 2
 }
 
+function buildClinicalSummaryMetrics(
+  patients: Patient360[],
+  liveReadings: Map<string, LiveReading>,
+): ClinicalSummaryMetrics {
+  const emergingRiskPatients = new Set<string>()
+  const activeHighAcuityPatients = new Set<string>()
+  let criticalEscalationsCount = 0
+  let highEscalationsCount = 0
+  let contextElevatedCareGapCount = 0
+  let contextElevatedPatientCount = 0
+
+  patients.forEach((patient) => {
+    const liveReading = liveReadings.get(patient.patient_id)
+    const hasSeriousAlert = hasSeriousActiveAlert(patient)
+    const contextElevatedCount = getContextElevatedCareGapCount(patient, liveReading)
+
+    criticalEscalationsCount += patient.active_alerts.filter((alert) => alert.severity === "critical").length
+    highEscalationsCount += patient.active_alerts.filter((alert) => alert.severity === "high").length
+    contextElevatedCareGapCount += contextElevatedCount
+
+    if (contextElevatedCount > 0) {
+      contextElevatedPatientCount += 1
+    }
+
+    if (hasSeriousAlert) {
+      activeHighAcuityPatients.add(patient.patient_id)
+    }
+
+    if (liveReading && !hasSeriousAlert && hasLivePressure(patient, liveReading)) {
+      emergingRiskPatients.add(patient.patient_id)
+    }
+  })
+
+  return {
+    emergingRiskCount: emergingRiskPatients.size,
+    activeHighAcuityPatientsCount: activeHighAcuityPatients.size,
+    criticalEscalationsCount,
+    highEscalationsCount,
+    contextElevatedCareGapCount,
+    contextElevatedPatientCount,
+  }
+}
+
+function hasSeriousActiveAlert(patient: Patient360) {
+  return patient.active_alerts.some((alert) => alert.severity === "critical" || alert.severity === "high")
+}
+
+function getContextElevatedCareGapCount(patient: Patient360, liveReading?: LiveReading) {
+  if (!hasLivePressure(patient, liveReading)) return 0
+
+  return patient.care_gaps.filter(
+    (gap) => gap.status === "open" && (gap.days_overdue > 0 || gap.priority === "high" || gap.priority === "critical"),
+  ).length
+}
+
 function deriveSuggestedActions(
   primaryAlert: PatientAlert | null,
   liveReading: LiveReading | undefined,
@@ -1296,6 +1312,21 @@ function getPatientContextSummary(patient: Patient360) {
   return contextBits.slice(0, 3).join(", ")
 }
 
+function getPatientContextBadges(patient: Patient360) {
+  const badges = [
+    patient.flags.has_insulin ? "Insulin" : null,
+    patient.flags.has_ckd ? "CKD" : null,
+    patient.flags.has_beta_blocker ? "Beta-blocker" : null,
+    patient.conditions.find((condition) => condition.display.toLowerCase().includes("hypertension")) ? "Hypertension" : null,
+  ].filter((value): value is string => Boolean(value))
+
+  return badges
+}
+
+function getHospitalWorkloadScore(row: HospitalRiskSummary) {
+  return row.critical * 3 + row.high * 2 + row.deteriorating + row.careGapPressure
+}
+
 function formatVitalValue(vital: VitalKey, value: number) {
   return vital === "temperature" ? value.toFixed(1) : value.toFixed(0)
 }
@@ -1325,11 +1356,6 @@ function formatRelativeTime(isoString: string): string {
 
 function isWithinWindow(isoString: string, windowMs: number) {
   return Date.now() - new Date(isoString).getTime() <= windowMs
-}
-
-function parseMetricNumber(value?: string) {
-  const parsed = Number.parseInt(value ?? "0", 10)
-  return Number.isNaN(parsed) ? 0 : parsed
 }
 
 function capitalize(value: string) {
