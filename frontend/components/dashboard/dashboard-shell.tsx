@@ -52,6 +52,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 
 interface DashboardShellProps {
   children: React.ReactNode
+  hideTopBar?: boolean
 }
 
 const navigation = [
@@ -103,7 +104,7 @@ function timeAgo(iso: string) {
   return `${Math.floor(mins / 60)}h ago`
 }
 
-export function DashboardShell({ children }: DashboardShellProps) {
+export function DashboardShell({ children, hideTopBar = false }: DashboardShellProps) {
   const pathname = usePathname()
   const { persona, logout, dataVersion } = useDemo()
   const { recentAlerts, unreadAlertCount, markAlertsRead, isRunning } = useSimulation()
@@ -219,105 +220,107 @@ export function DashboardShell({ children }: DashboardShellProps) {
       </Sidebar>
 
       <SidebarInset>
-        <header className="sticky top-0 z-10 flex h-14 items-center gap-4 border-b border-border bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-          <SidebarTrigger className="-ml-1" />
-          
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="h-8 gap-2">
-                <span className="max-w-[150px] truncate">{selectedHospital.name}</span>
-                <ChevronDown className="h-3 w-3 opacity-50" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              {hospitals.map((hospital) => (
-                <DropdownMenuItem
-                  key={hospital.id}
-                  onClick={() => setSelectedHospital(hospital)}
-                  className={cn(
-                    selectedHospital.id === hospital.id && "bg-accent"
-                  )}
-                >
-                  {hospital.name}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+        {!hideTopBar && (
+          <header className="sticky top-0 z-10 flex h-14 items-center gap-4 border-b border-border bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+            <SidebarTrigger className="-ml-1" />
+            
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="h-8 gap-2">
+                  <span className="max-w-[150px] truncate">{selectedHospital.name}</span>
+                  <ChevronDown className="h-3 w-3 opacity-50" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                {hospitals.map((hospital) => (
+                  <DropdownMenuItem
+                    key={hospital.id}
+                    onClick={() => setSelectedHospital(hospital)}
+                    className={cn(
+                      selectedHospital.id === hospital.id && "bg-accent"
+                    )}
+                  >
+                    {hospital.name}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
 
-          <div className="relative ml-auto flex-1 max-w-md">
-            <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              type="search"
-              placeholder="Search patients, conditions, or notes..."
-              className="h-8 pl-8 bg-secondary/50"
-            />
-          </div>
+            <div className="relative ml-auto flex-1 max-w-md">
+              <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                type="search"
+                placeholder="Search patients, conditions, or notes..."
+                className="h-8 pl-8 bg-secondary/50"
+              />
+            </div>
 
-          <Popover open={notifOpen} onOpenChange={(open) => {
-            setNotifOpen(open)
-            if (open && unreadAlertCount > 0) markAlertsRead()
-          }}>
-            <PopoverTrigger asChild>
-              <Button variant="ghost" size="icon" className="relative h-8 w-8">
-                <Bell className="h-4 w-4" />
-                {displayBadge > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] text-destructive-foreground">
-                    {displayBadge > 9 ? "9+" : displayBadge}
-                  </span>
-                )}
-                <span className="sr-only">Notifications</span>
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-96 p-0">
-              <div className="flex items-center justify-between border-b px-4 py-3">
-                <div className="flex items-center gap-2">
-                  <h4 className="text-sm font-semibold">Notifications</h4>
-                  {isRunning && (
-                    <span className="flex items-center gap-1 rounded-full bg-green-500/10 px-2 py-0.5 text-[10px] font-medium text-green-600">
-                      <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
-                      Live
+            <Popover open={notifOpen} onOpenChange={(open) => {
+              setNotifOpen(open)
+              if (open && unreadAlertCount > 0) markAlertsRead()
+            }}>
+              <PopoverTrigger asChild>
+                <Button variant="ghost" size="icon" className="relative h-8 w-8">
+                  <Bell className="h-4 w-4" />
+                  {displayBadge > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] text-destructive-foreground">
+                      {displayBadge > 9 ? "9+" : displayBadge}
                     </span>
                   )}
+                  <span className="sr-only">Notifications</span>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-96 p-0">
+                <div className="flex items-center justify-between border-b px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-sm font-semibold">Notifications</h4>
+                    {isRunning && (
+                      <span className="flex items-center gap-1 rounded-full bg-green-500/10 px-2 py-0.5 text-[10px] font-medium text-green-600">
+                        <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
+                        Live
+                      </span>
+                    )}
+                  </div>
+                  {recentAlerts.length > 0 && (
+                    <Button variant="ghost" size="sm" className="h-6 text-xs text-muted-foreground" asChild>
+                      <Link href="/alerts">View all</Link>
+                    </Button>
+                  )}
                 </div>
-                {recentAlerts.length > 0 && (
-                  <Button variant="ghost" size="sm" className="h-6 text-xs text-muted-foreground" asChild>
-                    <Link href="/alerts">View all</Link>
-                  </Button>
-                )}
-              </div>
-              <div className="max-h-80 overflow-y-auto">
-                {recentAlerts.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-                    <Bell className="mb-2 h-8 w-8 opacity-30" />
-                    <p className="text-sm">No recent alerts</p>
-                    <p className="text-xs">Alerts will appear here during monitoring</p>
-                  </div>
-                ) : (
-                  <div className="divide-y">
-                    {recentAlerts.slice(0, 20).map((alert) => (
-                      <div
-                        key={alert.id}
-                        className={cn(
-                          "flex gap-3 px-4 py-3 text-sm transition-colors hover:bg-muted/50",
-                          !alert.read && "bg-muted/30",
-                        )}
-                      >
-                        <span className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", SEVERITY_DOT[alert.severity] ?? "bg-gray-400")} />
-                        <div className="flex-1 space-y-0.5 overflow-hidden">
-                          <p className="truncate font-medium">{alert.patient_name}</p>
-                          <p className="truncate text-muted-foreground">{alert.title}</p>
+                <div className="max-h-80 overflow-y-auto">
+                  {recentAlerts.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                      <Bell className="mb-2 h-8 w-8 opacity-30" />
+                      <p className="text-sm">No recent alerts</p>
+                      <p className="text-xs">Alerts will appear here during monitoring</p>
+                    </div>
+                  ) : (
+                    <div className="divide-y">
+                      {recentAlerts.slice(0, 20).map((alert) => (
+                        <div
+                          key={alert.id}
+                          className={cn(
+                            "flex gap-3 px-4 py-3 text-sm transition-colors hover:bg-muted/50",
+                            !alert.read && "bg-muted/30",
+                          )}
+                        >
+                          <span className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", SEVERITY_DOT[alert.severity] ?? "bg-gray-400")} />
+                          <div className="flex-1 space-y-0.5 overflow-hidden">
+                            <p className="truncate font-medium">{alert.patient_name}</p>
+                            <p className="truncate text-muted-foreground">{alert.title}</p>
+                          </div>
+                          <span className="shrink-0 text-[10px] text-muted-foreground">
+                            {timeAgo(alert.timestamp)}
+                          </span>
                         </div>
-                        <span className="shrink-0 text-[10px] text-muted-foreground">
-                          {timeAgo(alert.timestamp)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </PopoverContent>
-          </Popover>
-        </header>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
+          </header>
+        )}
 
         <main className="flex-1 overflow-auto">
           {children}
