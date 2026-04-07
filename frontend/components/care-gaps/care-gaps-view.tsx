@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import {
   AlertTriangle,
   Calendar,
@@ -39,6 +40,7 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { type Patient360 } from "@/lib/mock-data"
+import { getCareGapMeasureDashboardLabel, getCareGapMeasureDescription } from "@/lib/care-gap-measures"
 
 type CareGapWithPatient = {
   gap: Patient360["care_gaps"][number]
@@ -50,21 +52,23 @@ type ScheduledAction = {
   action: "scheduled" | "ordered"
 }
 
-const MEASURE_META: Record<string, { name: string; description: string }> = {
-  "CDC-HBA": { name: "HbA1c Testing", description: "Comprehensive Diabetes Care — HbA1c every 6 months" },
-  KED: { name: "Kidney Evaluation", description: "Annual eGFR + uACR for diabetic patients" },
-  CBP: { name: "Blood Pressure Control", description: "BP target < 140/90 for diabetic patients" },
-  SPD: { name: "Statin Therapy", description: "Diabetic patients 40–75 should be on statin" },
-  EED: { name: "Eye Exam", description: "Annual retinal exam for diabetics" },
-}
-
 export function CareGapsView() {
   const { dataVersion } = useDemo()
+  const searchParams = useSearchParams()
   const [patients, setPatients] = React.useState<Patient360[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [scheduledActions, setScheduledActions] = React.useState<Record<string, ScheduledAction>>({})
   const [dialogTarget, setDialogTarget] = React.useState<{ item: CareGapWithPatient; action: "schedule" | "order" } | null>(null)
+  const dashboardSource = searchParams.get("source") === "dashboard"
+  const focusedMeasures = React.useMemo(
+    () =>
+      (searchParams.get("measures") ?? "")
+        .split(",")
+        .map((measure) => measure.trim())
+        .filter(Boolean),
+    [searchParams],
+  )
 
   React.useEffect(() => {
     setLoading(true)
@@ -95,6 +99,17 @@ export function CareGapsView() {
   const openGaps = React.useMemo(
     () => allGaps.filter((g) => g.gap.status === "open"),
     [allGaps],
+  )
+  const focusedOpenGaps = React.useMemo(
+    () =>
+      focusedMeasures.length > 0
+        ? openGaps.filter((item) => focusedMeasures.includes(item.gap.hedis_measure))
+        : openGaps,
+    [focusedMeasures, openGaps],
+  )
+  const focusedMeasureLabels = React.useMemo(
+    () => focusedMeasures.map((measure) => getCareGapMeasureDashboardLabel(measure)),
+    [focusedMeasures],
   )
 
   const overdueGaps = React.useMemo(
@@ -159,6 +174,34 @@ export function CareGapsView() {
           HEDIS quality measures — track compliance, schedule orders, close gaps
         </p>
       </div>
+
+      {dashboardSource && (
+        <Card className="border-border/60 bg-white shadow-sm">
+          <CardContent className="flex flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                  <ClipboardList className="h-4 w-4 text-primary" />
+                  <span className="whitespace-nowrap">Handoff from Clinical Quality Operations</span>
+                </div>
+                {focusedMeasureLabels.slice(0, 3).map((label) => (
+                  <Badge key={label} variant="secondary" className="border border-[#CFF5DD] bg-[#F2FFF8] text-[#0F5A3C]">
+                    {label}
+                  </Badge>
+                ))}
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {focusedMeasureLabels.length > 0
+                  ? `This view continues the priorities surfaced on the dashboard. ${focusedOpenGaps.length} open gap${focusedOpenGaps.length === 1 ? "" : "s"} match the current focus.`
+                  : "Continue working the open care gaps that were elevated on the dashboard."}
+              </p>
+            </div>
+            <Button asChild variant="outline" size="sm" className="w-full lg:w-auto lg:shrink-0">
+              <Link href="/">Return to dashboard</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ---- Stats row ---- */}
       <div className="grid gap-4 md:grid-cols-5">
@@ -270,7 +313,7 @@ export function CareGapsView() {
                   )}
                 />
                 <p className="mt-1.5 text-[11px] text-muted-foreground">
-                  {MEASURE_META[entry.measure]?.description ?? entry.measureName}
+                  {getCareGapMeasureDescription(entry.measure, entry.measureName)}
                 </p>
                 <p className="text-[11px] text-muted-foreground">
                   {entry.compliant}/{entry.eligible} patients compliant

@@ -20,7 +20,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useDemo } from "@/lib/demo-context"
 import { fetchAllPatients } from "@/lib/api"
 import { useSimulation, type AlertNotification, type LiveReading } from "@/lib/simulation-context"
-import { type Alert as PatientAlert, type Patient360 } from "@/lib/mock-data"
+import {
+  getCareGapMeasureMeta,
+  getCareGapMeasureActionLabel,
+  getCareGapMeasureDashboardLabel,
+} from "@/lib/care-gap-measures"
+import { type Alert as PatientAlert, type CareGap, type Patient360 } from "@/lib/mock-data"
 import { cn } from "@/lib/utils"
 
 const LIVE_WINDOW_MS = 60 * 1000
@@ -63,6 +68,7 @@ type LiveMetric = {
 type EscalationCandidate = {
   patient: Patient360
   score: number
+  topGap: CareGap | null
   primaryAlert: PatientAlert | null
   liveReading: CurrentReading
   liveSignals: string[]
@@ -71,12 +77,17 @@ type EscalationCandidate = {
   recentAlertCount: number
   eventLabel: string | null
   suggestedActions: string[]
+  measurePressureScore: number
+  livePressureScore: number
+  contextPressureScore: number
+  alertPressureScore: number
 }
 
 type ClinicalSummaryMetrics = {
-  immediateReviewCount: number
-  watchlistCount: number
-  newEscalationsCount: number
+  contextElevatedGapCount: number
+  interventionPatientCount: number
+  pressuredMeasureCount: number
+  pressuredMeasureLabels: string[]
 }
 
 type CardTrend = {
@@ -181,9 +192,9 @@ export function DashboardOverview() {
   return (
     <div className="flex flex-col gap-5 p-5">
       <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Clinical Operations</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Clinical Quality Operations</h1>
         <p className="text-sm text-muted-foreground">
-          Review the top case and work the next patients in line.
+          Identify which care gaps need intervention now based on HEDIS risk, live context, and CDS guidance.
         </p>
       </div>
 
@@ -273,7 +284,7 @@ function TopEscalationCard({
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <HeartPulse className="h-4 w-4 text-primary" />
-            Priority Review
+            Priority Intervention
           </CardTitle>
           <CardDescription>No clinically urgent escalations at the moment.</CardDescription>
         </CardHeader>
@@ -281,15 +292,14 @@ function TopEscalationCard({
     )
   }
 
-  const { patient, primaryAlert, liveReading, thresholdBreaches, liveSignals, suggestedActions, score } = candidate
+  const { patient, liveReading, thresholdBreaches, liveSignals, score } = candidate
   const topContext = getPatientContextSummary(patient)
   const contextBadges = getPatientContextBadges(patient)
   const priorityLabel = getPriorityReviewLabel(score)
   const whySurfaced = getWhySurfacedReasons(candidate)
   const currentSignals = getPrioritySignals(candidate)
-  const primaryConcern =
-    primaryAlert?.reasoning ??
-    "Live vitals and patient context indicate this case should be reviewed before the rest of the queue."
+  const primaryConcern = getPrimaryConcern(candidate)
+  const interventionActions = deriveInterventionActions(candidate)
 
   return (
     <Card className="border-border/60 bg-white shadow-sm">
@@ -297,7 +307,7 @@ function TopEscalationCard({
         <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
-              <CardTitle className="text-base">Priority Review</CardTitle>
+              <CardTitle className="text-base">Priority Intervention</CardTitle>
               <Badge variant="destructive">{priorityLabel}</Badge>
               <Badge variant="outline">Top of queue</Badge>
               {contextBadges.slice(0, 3).map((badge) => (
@@ -326,17 +336,17 @@ function TopEscalationCard({
             Primary concern
           </p>
           <p className="mt-2 text-sm font-medium text-foreground">
-            {primaryAlert?.title ?? "Rapid review recommended"}
+            {primaryConcern.title}
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
-            {primaryConcern}
+            {primaryConcern.summary}
           </p>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="grid gap-3 lg:grid-cols-2">
           <div className="h-full rounded-lg border border-border/60 bg-white p-3 shadow-sm">
-            <p className="text-sm font-medium">Current signals</p>
+            <p className="text-sm font-medium">Clinical pressure</p>
             <p className="mt-1 text-xs text-muted-foreground">
               The key live measurements driving this review.
             </p>
@@ -374,7 +384,7 @@ function TopEscalationCard({
           </div>
 
           <div className="h-full rounded-lg border border-border/60 bg-white p-3 shadow-sm">
-            <p className="text-sm font-medium">Why surfaced</p>
+            <p className="text-sm font-medium">Why this gap matters now</p>
             <div className="mt-3 flex flex-wrap gap-2">
               {liveSignals.slice(0, 3).map((signal) => (
                 <Badge
@@ -412,7 +422,7 @@ function TopEscalationCard({
         <div className="rounded-lg border border-border/60 bg-white p-3 shadow-sm">
           <p className="text-sm font-medium">Recommended next steps</p>
           <div className="mt-2.5 space-y-2">
-            {suggestedActions.slice(0, 2).map((action, index) => (
+            {interventionActions.slice(0, 2).map((action, index) => (
               <div
                 key={action}
                 className="flex gap-3 rounded-md border border-border/60 bg-white px-3 py-2 text-sm"
@@ -441,15 +451,17 @@ function ReviewQueueCard({
   candidates: EscalationCandidate[]
   onSelectPatient: (patientId: string) => void
 }) {
+  const careGapsHandoff = getCareGapsHandoff(candidates)
+
   return (
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="flex items-center gap-2 text-base">
           <HeartPulse className="h-4 w-4 text-primary" />
-          Review Queue
+          Intervention Queue
         </CardTitle>
         <CardDescription className="text-xs leading-5">
-          The next patients to work after the current case.
+          The next care-gap interventions to work after the current case.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-1.5">
@@ -470,7 +482,7 @@ function ReviewQueueCard({
                   </p>
                   <div className="mt-1 flex flex-wrap items-center gap-2">
                     <p className="font-medium">{candidate.patient.demographics.name}</p>
-                    <Badge variant={candidate.score >= 280 ? "destructive" : "secondary"}>
+                    <Badge variant={candidate.score >= 260 ? "destructive" : "secondary"}>
                       {getPriorityReviewLabel(candidate.score)}
                     </Badge>
                   </div>
@@ -499,6 +511,20 @@ function ReviewQueueCard({
             </button>
           ))
         )}
+        <div className="mt-3 rounded-lg border border-border/60 bg-muted/20 px-3 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+              <ClipboardList className="h-4 w-4 text-primary" />
+              <span className="whitespace-nowrap">Continue in Care Gaps</span>
+            </div>
+            <Button asChild variant="outline" size="sm">
+              <Link href={careGapsHandoff.href} className="gap-1">
+                Manage HEDIS gap operations
+                <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+            </Button>
+          </div>
+        </div>
       </CardContent>
     </Card>
   )
@@ -598,29 +624,31 @@ function buildLiveMetrics({
 
   return [
     {
-      label: "Immediate review",
-      value: String(clinicalSummary.immediateReviewCount),
+      label: "Context-elevated gaps",
+      value: String(clinicalSummary.contextElevatedGapCount),
       detail: isRunning
-        ? `${updatedLastMinute} patients refreshed in the last minute.`
-        : "High-priority patients waiting for follow-up right now.",
+        ? `${updatedLastMinute} patient records refreshed in the last minute.`
+        : "Open gaps currently amplified by patient context.",
       variant: "critical",
     },
     {
-      label: "Watchlist",
-      value: String(clinicalSummary.watchlistCount),
+      label: "Patients needing intervention",
+      value: String(clinicalSummary.interventionPatientCount),
       detail:
         activePatternCount > 0
-          ? `${activePatternCount} patients are showing a notable live pattern.`
-          : "Patients with drift are being monitored for sustained change.",
+          ? `${activePatternCount} patients are showing live clinical pressure.`
+          : "Patients whose care gaps now warrant outreach, review, or ordering.",
       variant: "warning",
     },
     {
-      label: "New escalations",
-      value: String(clinicalSummary.newEscalationsCount),
+      label: "Measures under pressure",
+      value: String(clinicalSummary.pressuredMeasureCount),
       detail:
-        recentEscalationPatients.size > 0
-          ? `${recentEscalationPatients.size} patients moved because of recent alerts.`
-          : "No new high-priority movement in the last few minutes.",
+        clinicalSummary.pressuredMeasureLabels.length > 0
+          ? `${clinicalSummary.pressuredMeasureLabels.join(", ")} currently drive the highest intervention pressure.`
+          : recentEscalationPatients.size > 0
+            ? `${recentEscalationPatients.size} patient priorities changed recently.`
+            : "No HEDIS measures are currently elevated by live context.",
     },
   ] satisfies LiveMetric[]
 }
@@ -633,7 +661,15 @@ function rankEscalationPatients(
   return patients
     .map((patient) => buildEscalationCandidate(patient, liveReadings.get(patient.patient_id), recentAlerts))
     .filter((candidate): candidate is EscalationCandidate => candidate !== null)
-    .sort((left, right) => right.score - left.score)
+    .sort((left, right) => {
+      const scoreDiff = right.score - left.score
+      if (scoreDiff !== 0) return scoreDiff
+
+      const overdueDiff = (right.topGap?.days_overdue ?? 0) - (left.topGap?.days_overdue ?? 0)
+      if (overdueDiff !== 0) return overdueDiff
+
+      return right.recentAlertCount - left.recentAlertCount
+    })
 }
 
 function buildEscalationCandidate(
@@ -641,22 +677,29 @@ function buildEscalationCandidate(
   liveReading: LiveReading | undefined,
   recentAlerts: AlertNotification[],
 ): EscalationCandidate | null {
+  const topGap = getTopRelevantGap(patient)
+  if (!topGap) {
+    return null
+  }
+
+  const openGaps = getOpenCareGaps(patient)
   const criticalAlerts = patient.active_alerts.filter((alert) => alert.severity === "critical")
   const highAlerts = patient.active_alerts.filter((alert) => alert.severity === "high")
   const primaryAlert = criticalAlerts[0] ?? highAlerts[0] ?? patient.active_alerts[0] ?? null
   const thresholdBreaches = getThresholdBreaches(patient, liveReading)
   const liveSignals = getVitalsRiskSignals(patient, liveReading)
-  const overdueGapCount = patient.care_gaps.filter((gap) => gap.status === "open" && gap.days_overdue > 0).length
+  const overdueGapCount = openGaps.filter((gap) => gap.days_overdue > 0).length
   const sessionAlerts = recentAlerts.filter((alert) => alert.patient_id === patient.patient_id)
-  const liveEventBoost = liveReading?.event ? 35 : 0
+  const recentSessionAlerts = sessionAlerts.filter((alert) => isWithinWindow(alert.timestamp, ALERT_WINDOW_MS))
+  const measurePressureScore = getMeasurePressureScore(topGap, openGaps.length)
+  const livePressureScore = getLivePressureScore(thresholdBreaches, liveSignals, liveReading?.event ?? null)
+  const contextPressureScore = getContextPressureScore(patient, topGap.hedis_measure)
+  const alertPressureScore = getAlertPressureScore(patient, recentSessionAlerts.length)
   const score =
-    criticalAlerts.length * 100 +
-    highAlerts.length * 60 +
-    thresholdBreaches.length * 24 +
-    liveSignals.length * 12 +
-    overdueGapCount * 14 +
-    sessionAlerts.length * 10 +
-    liveEventBoost
+    measurePressureScore +
+    livePressureScore +
+    contextPressureScore +
+    alertPressureScore
 
   if (score <= 0) {
     return null
@@ -665,14 +708,19 @@ function buildEscalationCandidate(
   return {
     patient,
     score,
+    topGap,
     primaryAlert,
     liveReading: getCurrentReading(patient, liveReading),
     liveSignals,
     thresholdBreaches,
     overdueGapCount,
-    recentAlertCount: sessionAlerts.length,
+    recentAlertCount: recentSessionAlerts.length,
     eventLabel: liveReading?.event ? capitalize(liveReading.event) : null,
     suggestedActions: deriveSuggestedActions(primaryAlert, liveReading, thresholdBreaches),
+    measurePressureScore,
+    livePressureScore,
+    contextPressureScore,
+    alertPressureScore,
   }
 }
 
@@ -746,34 +794,121 @@ function hasLivePressure(patient: Patient360, liveReading?: LiveReading) {
   return getThresholdBreaches(patient, liveReading).length > 0 || getVitalsRiskSignals(patient, liveReading).length >= 2
 }
 
+function getMeasurePressureScore(topGap: CareGap, openGapCount: number) {
+  const priorityWeight: Record<CareGap["priority"], number> = {
+    critical: 95,
+    high: 72,
+    medium: 44,
+    low: 20,
+  }
+  const overdueWeight = Math.min(topGap.days_overdue, 120)
+  const additionalGapWeight = Math.min(Math.max(openGapCount - 1, 0) * 10, 30)
+
+  return 95 + (priorityWeight[topGap.priority] ?? 20) + Math.round(overdueWeight * 0.7) + getMeasureStrategicWeight(topGap.hedis_measure) + additionalGapWeight
+}
+
+function getMeasureStrategicWeight(measure: string) {
+  const strategicWeight: Record<string, number> = {
+    "CDC-HBA": 30,
+    KED: 28,
+    CBP: 24,
+    SPD: 18,
+    EED: 16,
+  }
+
+  return strategicWeight[measure] ?? 12
+}
+
+function getLivePressureScore(
+  thresholdBreaches: ThresholdBreach[],
+  liveSignals: string[],
+  event: LiveReading["event"] | null,
+) {
+  const nonBreachSignalCount = Math.max(liveSignals.length - thresholdBreaches.length, 0)
+  const eventBoost =
+    event === "sepsis" ? 42 : event === "hypoglycemia" ? 36 : 0
+
+  return thresholdBreaches.length * 22 + nonBreachSignalCount * 10 + eventBoost
+}
+
+function getContextPressureScore(patient: Patient360, measure: string) {
+  let score = 0
+
+  if (patient.flags.has_ckd) score += 16
+  if (patient.flags.has_insulin) score += 14
+  if (patient.flags.has_beta_blocker) score += 8
+  if (patient.conditions.some((condition) => condition.display.toLowerCase().includes("hypertension"))) {
+    score += 8
+  }
+
+  if (measure === "KED" && patient.flags.has_ckd) score += 20
+  if (measure === "CDC-HBA" && patient.flags.has_insulin) score += 20
+  if (measure === "CBP" && patient.conditions.some((condition) => condition.display.toLowerCase().includes("hypertension"))) {
+    score += 18
+  }
+  if (measure === "SPD") score += 12
+  if (measure === "EED") score += 10
+
+  return score
+}
+
+function getAlertPressureScore(patient: Patient360, recentAlertCount: number) {
+  const criticalCount = patient.active_alerts.filter((alert) => alert.severity === "critical").length
+  const highCount = patient.active_alerts.filter((alert) => alert.severity === "high").length
+  const moderateCount = patient.active_alerts.filter(
+    (alert) => alert.severity === "moderate" || alert.severity === "medium",
+  ).length
+
+  return criticalCount * 26 + highCount * 16 + moderateCount * 8 + recentAlertCount * 12
+}
+
 function buildClinicalSummaryMetrics(
   patients: Patient360[],
   liveReadings: Map<string, LiveReading>,
   recentAlerts: AlertNotification[],
   rankedEscalations: EscalationCandidate[],
 ): ClinicalSummaryMetrics {
-  const immediateReviewPatients = new Set(
-    rankedEscalations
-      .filter((candidate) => isImmediateReviewCandidate(candidate))
-      .map((candidate) => candidate.patient.patient_id),
-  )
-  const watchlistPatients = new Set<string>()
-  const newEscalationPatients = new Set(
+  const patientsWithRecentAlerts = new Set(
     recentAlerts
       .filter((alert) => isWithinWindow(alert.timestamp, ALERT_WINDOW_MS))
       .map((alert) => alert.patient_id),
   )
+  const rankedPatientIds = new Set(rankedEscalations.map((candidate) => candidate.patient.patient_id))
+  const interventionPatients = new Set<string>()
+  let contextElevatedGapCount = 0
+  const pressuredMeasures = new Map<string, number>()
 
   patients.forEach((patient) => {
     const liveReading = liveReadings.get(patient.patient_id)
-    if (!liveReading || immediateReviewPatients.has(patient.patient_id)) return
-    if (hasLivePressure(patient, liveReading)) watchlistPatients.add(patient.patient_id)
+    const openGaps = getOpenCareGaps(patient)
+    if (openGaps.length === 0) return
+
+    const hasActionableContext =
+      hasSeriousActiveAlert(patient) ||
+      patientsWithRecentAlerts.has(patient.patient_id) ||
+      Boolean(liveReading && hasLivePressure(patient, liveReading)) ||
+      rankedPatientIds.has(patient.patient_id)
+
+    if (!hasActionableContext) return
+
+    interventionPatients.add(patient.patient_id)
+    contextElevatedGapCount += openGaps.length
+
+    openGaps.forEach((gap) => {
+      pressuredMeasures.set(gap.hedis_measure, (pressuredMeasures.get(gap.hedis_measure) ?? 0) + 1)
+    })
   })
 
+  const pressuredMeasureLabels = Array.from(pressuredMeasures.entries())
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, 3)
+    .map(([measure]) => getCareGapMeasureDashboardLabel(measure))
+
   return {
-    immediateReviewCount: immediateReviewPatients.size,
-    watchlistCount: watchlistPatients.size,
-    newEscalationsCount: newEscalationPatients.size,
+    contextElevatedGapCount,
+    interventionPatientCount: interventionPatients.size,
+    pressuredMeasureCount: pressuredMeasures.size,
+    pressuredMeasureLabels,
   }
 }
 
@@ -812,6 +947,106 @@ function deriveSuggestedActions(
   return Array.from(actions).slice(0, 4)
 }
 
+function getPrimaryConcern(candidate: EscalationCandidate) {
+  const topGap = candidate.topGap
+  const measureMeta = topGap ? getCareGapMeasureMeta(topGap.hedis_measure) : null
+  const urgency = getGapUrgencyDriver(candidate)
+  const contextSummary = getGapContextSummary(candidate.patient, topGap?.hedis_measure)
+
+  if (topGap) {
+    const title = `${getCareGapMeasureDashboardLabel(topGap.hedis_measure)} requires intervention`
+    const gapName = measureMeta?.name ?? topGap.measure_name
+    const contextSentence = contextSummary
+      ? ` ${contextSummary}`
+      : " This case has enough context to justify immediate outreach."
+
+    return {
+      title,
+      summary: `${gapName} remains open. ${urgency}${contextSentence}`,
+    }
+  }
+
+  return {
+    title: candidate.primaryAlert?.title ?? "Rapid review recommended",
+    summary:
+      candidate.primaryAlert?.reasoning ??
+      "Live vitals and patient context indicate this case should be reviewed before the rest of the queue.",
+  }
+}
+
+function deriveInterventionActions(candidate: EscalationCandidate) {
+  const topGap = candidate.topGap
+  const firstBreach = candidate.thresholdBreaches[0]
+  const actions = new Set<string>()
+
+  if (topGap) {
+    actions.add(getCareGapMeasureActionLabel(topGap.hedis_measure))
+    getMeasureSpecificInterventions(candidate, topGap.hedis_measure).forEach((action) => actions.add(action))
+    actions.add(
+      `Route a DaVinci CDS recommendation for ${getCareGapMeasureDashboardLabel(topGap.hedis_measure).toLowerCase()} follow-up`,
+    )
+  }
+
+  if (candidate.eventLabel === "Hypoglycemia") {
+    actions.add("Initiate same-day outreach and confirm point-of-care glucose plan")
+  } else if (candidate.eventLabel === "Sepsis") {
+    actions.add("Escalate to clinician review immediately before closing the care gap workflow")
+  } else if (firstBreach) {
+    actions.add(`Review ${VITAL_CONFIG[firstBreach.vital].label} trend before completing intervention outreach`)
+  }
+
+  if (candidate.overdueGapCount > 0) {
+    actions.add("Convert the highest-priority open gap into an order, schedule, or outreach task today")
+  }
+
+  if (actions.size === 0) {
+    actions.add("Open the patient chart and confirm the next gap-closure action")
+    actions.add("Route the intervention to the quality or clinician workflow")
+  }
+
+  return Array.from(actions).slice(0, 4)
+}
+
+function getMeasureSpecificInterventions(candidate: EscalationCandidate, measure: string) {
+  const { patient } = candidate
+
+  if (measure === "CDC-HBA") {
+    return [
+      patient.flags.has_insulin
+        ? "Review insulin adherence and glucose trends before closing the HbA1c workflow"
+        : "Confirm diabetes follow-up is active before routing HbA1c outreach",
+    ]
+  }
+
+  if (measure === "KED") {
+    return [
+      patient.flags.has_ckd
+        ? "Prioritize eGFR and uACR completion because CKD context increases quality and clinical risk"
+        : "Confirm kidney monitoring is not already pending in the chart",
+    ]
+  }
+
+  if (measure === "CBP") {
+    return [
+      "Confirm blood pressure follow-up and antihypertensive adherence before closing outreach",
+    ]
+  }
+
+  if (measure === "SPD") {
+    return [
+      "Review active medication list and route statin-therapy outreach or clinician review",
+    ]
+  }
+
+  if (measure === "EED") {
+    return [
+      "Initiate retinal exam outreach and close the referral loop with the eye-care workflow",
+    ]
+  }
+
+  return []
+}
+
 function getPatientContextSummary(patient: Patient360) {
   const contextBits = [
     patient.flags.has_beta_blocker ? "beta-blocker therapy" : null,
@@ -835,33 +1070,30 @@ function getPatientContextBadges(patient: Patient360) {
 }
 
 function isImmediateReviewCandidate(candidate: EscalationCandidate) {
-  return hasSeriousActiveAlert(candidate.patient) || candidate.score >= 160
+  return hasSeriousActiveAlert(candidate.patient) || candidate.score >= 180
 }
 
 function getCandidateReasonLine(candidate: EscalationCandidate) {
   const parts: string[] = []
-  const firstBreach = candidate.thresholdBreaches[0]
+  const topGap = candidate.topGap
 
-  if (firstBreach) {
-    parts.push(`${VITAL_CONFIG[firstBreach.vital].label} ${firstBreach.direction} personalized threshold`)
-  } else if (candidate.eventLabel) {
-    parts.push(`${candidate.eventLabel} pattern detected`)
-  } else if (candidate.primaryAlert?.title) {
-    parts.push(candidate.primaryAlert.title)
+  if (topGap) {
+    parts.push(`${getCareGapMeasureDashboardLabel(topGap.hedis_measure)} gap`)
   }
 
-  const contextBadge = getPatientContextBadges(candidate.patient)[0]
-  if (contextBadge) parts.push(contextBadge)
+  parts.push(getCandidateContextAmplifier(candidate))
+  parts.push(getCandidateClinicalAmplifier(candidate))
 
-  if (candidate.overdueGapCount > 0) {
-    parts.push(`${candidate.overdueGapCount} open care gap${candidate.overdueGapCount === 1 ? "" : "s"}`)
-  }
-
-  return parts.slice(0, 3).join(" • ")
+  return parts.filter(Boolean).slice(0, 3).join(" • ")
 }
 
 function getQueueSupportBadges(candidate: EscalationCandidate) {
   const badges = getPatientContextBadges(candidate.patient).slice(0, 2)
+  const topGap = candidate.topGap
+
+  if (topGap) {
+    badges.unshift(topGap.hedis_measure)
+  }
 
   if (candidate.recentAlertCount > 0) {
     badges.push(
@@ -876,33 +1108,152 @@ function getQueueSupportBadges(candidate: EscalationCandidate) {
   return badges.slice(0, 3)
 }
 
-function getWhySurfacedReasons(candidate: EscalationCandidate) {
-  const reasons: string[] = []
+function getCareGapsHandoff(candidates: EscalationCandidate[]) {
+  const topMeasures = Array.from(
+    new Set(
+      candidates
+        .map((candidate) => candidate.topGap?.hedis_measure)
+        .filter((measure): measure is string => Boolean(measure)),
+    ),
+  ).slice(0, 3)
+  const params = new URLSearchParams({ source: "dashboard" })
+
+  if (topMeasures.length > 0) {
+    params.set("measures", topMeasures.join(","))
+  }
+
+  return {
+    href: `/care-gaps?${params.toString()}`,
+  }
+}
+
+function getOpenCareGaps(patient: Patient360) {
+  return patient.care_gaps.filter((gap) => gap.status === "open")
+}
+
+function getTopRelevantGap(patient: Patient360) {
+  const priorityRank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 }
+
+  return getOpenCareGaps(patient).sort((left, right) => {
+    const overdueDiff = right.days_overdue - left.days_overdue
+    if (overdueDiff !== 0) return overdueDiff
+    return (priorityRank[left.priority] ?? 4) - (priorityRank[right.priority] ?? 4)
+  })[0] ?? null
+}
+
+function getGapUrgencyDriver(candidate: EscalationCandidate) {
   const firstBreach = candidate.thresholdBreaches[0]
 
+  if (candidate.eventLabel === "Sepsis") {
+    return "A sepsis-like pattern is increasing the urgency of intervention."
+  }
+
+  if (candidate.eventLabel === "Hypoglycemia") {
+    return "A hypoglycemia-like pattern is making routine follow-up too slow."
+  }
+
   if (firstBreach) {
+    return `${VITAL_CONFIG[firstBreach.vital].label} is ${firstBreach.direction} the personalized threshold.`
+  }
+
+  if (candidate.primaryAlert?.title) {
+    return `${candidate.primaryAlert.title} is raising intervention urgency.`
+  }
+
+  return "Current patient context is raising intervention urgency."
+}
+
+function getGapContextSummary(patient: Patient360, measure?: string) {
+  if (!measure) {
+    return `${getPatientContextSummary(patient)}`
+  }
+
+  if (measure === "CDC-HBA") {
+    return patient.flags.has_insulin
+      ? "Insulin-treated diabetes and current instability increase the value of timely glycemic follow-up."
+      : "Diabetes context keeps glycemic follow-up tied to quality performance."
+  }
+
+  if (measure === "KED") {
+    return patient.flags.has_ckd
+      ? "CKD context means delayed kidney monitoring may affect both outcomes and HEDIS performance."
+      : "Renal follow-up is still important for diabetic quality management."
+  }
+
+  if (measure === "CBP") {
+    return "Hypertension and diabetes context increase the value of closing blood pressure follow-up promptly."
+  }
+
+  if (measure === "SPD") {
+    return "Medication optimization affects both cardiovascular prevention and quality performance."
+  }
+
+  if (measure === "EED") {
+    return "Diabetes context keeps retinal screening important for preventive quality performance."
+  }
+
+  return `${getPatientContextSummary(patient)}`
+}
+
+function getWhySurfacedReasons(candidate: EscalationCandidate) {
+  const reasons: string[] = []
+  const topGap = candidate.topGap
+
+  if (topGap) {
     reasons.push(
-      `${VITAL_CONFIG[firstBreach.vital].label} is ${firstBreach.direction} the personalized boundary of ${firstBreach.threshold}.`,
+      `${getCareGapMeasureDashboardLabel(topGap.hedis_measure)} is still open and ${topGap.days_overdue} day${topGap.days_overdue === 1 ? "" : "s"} overdue.`,
     )
   }
 
-  if (candidate.eventLabel) {
-    reasons.push(`${candidate.eventLabel} pattern detected in the live stream.`)
-  } else if (candidate.liveSignals.length > 0) {
-    reasons.push(`${candidate.liveSignals[0]} is reinforcing the current priority.`)
-  }
-
-  if (candidate.overdueGapCount > 0) {
-    reasons.push(
-      `${candidate.overdueGapCount} open care gap${candidate.overdueGapCount === 1 ? "" : "s"} add follow-up burden to the current change.`,
-    )
-  }
+  reasons.push(
+    `${getCandidateContextAmplifier(candidate)} is now paired with ${lowercaseFirst(getCandidateClinicalAmplifier(candidate))}.`,
+  )
 
   if (reasons.length === 0) {
     reasons.push("Combined live drift and clinical context are keeping this patient at the top of the board.")
   }
 
   return reasons.slice(0, 2)
+}
+
+function getCandidateContextAmplifier(candidate: EscalationCandidate) {
+  const { patient, topGap } = candidate
+  const measure = topGap?.hedis_measure
+
+  if (measure === "KED" && patient.flags.has_ckd) return "CKD context"
+  if (measure === "CDC-HBA" && patient.flags.has_insulin) return "Insulin-treated diabetes"
+  if (
+    measure === "CBP" &&
+    patient.conditions.some((condition) => condition.display.toLowerCase().includes("hypertension"))
+  ) {
+    return "Hypertension context"
+  }
+  if (measure === "SPD") return "Cardiovascular prevention risk"
+  if (measure === "EED") return "Diabetes screening risk"
+
+  return getPatientContextBadges(patient)[0] ?? "Quality risk context"
+}
+
+function getCandidateClinicalAmplifier(candidate: EscalationCandidate) {
+  const firstBreach = candidate.thresholdBreaches[0]
+
+  if (candidate.eventLabel) {
+    return `${candidate.eventLabel} pattern detected`
+  }
+
+  if (firstBreach) {
+    return `${VITAL_CONFIG[firstBreach.vital].label} ${firstBreach.direction} threshold`
+  }
+
+  if (candidate.liveSignals.length > 0) {
+    return candidate.liveSignals[0]
+  }
+
+  if (candidate.recentAlertCount > 0) {
+    return `${candidate.recentAlertCount} recent escalation${candidate.recentAlertCount === 1 ? "" : "s"}`
+  }
+
+  return "Open gap burden remains unresolved"
 }
 
 function getPrioritySignals(candidate: EscalationCandidate) {
@@ -937,10 +1288,14 @@ function getPrioritySignals(candidate: EscalationCandidate) {
 }
 
 function getPriorityReviewLabel(score: number) {
-  if (score >= 450) return "Immediate review"
-  if (score >= 280) return "Escalate now"
-  if (score >= 160) return "High priority"
+  if (score >= 380) return "Immediate review"
+  if (score >= 260) return "Escalate now"
+  if (score >= 180) return "High priority"
   return "Priority watch"
+}
+
+function lowercaseFirst(value: string) {
+  return value.length > 0 ? value.charAt(0).toLowerCase() + value.slice(1) : value
 }
 
 function formatVitalValue(vital: VitalKey, value: number) {
