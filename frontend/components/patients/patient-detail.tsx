@@ -42,6 +42,7 @@ import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { type Patient360, type VitalsTimeSeries } from "@/lib/mock-data"
 import { VitalsChart, type ChartAnnotation } from "@/components/patients/vitals-chart"
+import { KedWorkflowCard } from "@/components/patients/ked-workflow-card"
 
 interface PatientDetailProps {
   patientId: string
@@ -58,9 +59,8 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
   const [annotationLabel, setAnnotationLabel] = React.useState("")
   const [annotationType, setAnnotationType] = React.useState<ChartAnnotation["type"]>("note")
 
-  React.useEffect(() => {
-    setLoading(true)
-    Promise.all([
+  const reloadPatientData = React.useCallback(() => {
+    return Promise.all([
       fetchPatientDetail(patientId),
       fetchPatientVitals(patientId, vitalsHours),
     ])
@@ -70,8 +70,12 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
         setError(null)
       })
       .catch((err) => setError(err.message))
-      .finally(() => setLoading(false))
   }, [patientId, vitalsHours])
+
+  React.useEffect(() => {
+    setLoading(true)
+    reloadPatientData().finally(() => setLoading(false))
+  }, [reloadPatientData])
 
   React.useEffect(() => {
     if (!detailData) return
@@ -396,6 +400,12 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
 
         {/* ---- Right sidebar ---- */}
         <div className="space-y-6">
+          <KedWorkflowCard
+            patientId={patientId}
+            careGaps={care_gaps}
+            onWorkflowUpdated={reloadPatientData}
+          />
+
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base font-medium">Clinical Context</CardTitle>

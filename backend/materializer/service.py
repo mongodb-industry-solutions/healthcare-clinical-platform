@@ -95,6 +95,23 @@ class MaterializerService:
             "longitudinal_generated_at": now,
             "active_alerts": [],   # populated by CDS engine in Phase C
             "care_gaps": [],       # populated by HEDIS calculator in Phase C
+            "interventions": {
+                "ked_workflow": {
+                    "status": "not_started",
+                    "ordered_at": None,
+                    "ordered_by": None,
+                    "completed_at": None,
+                    "completed_by": None,
+                    "required_evidence": ["eGFR", "uACR"],
+                    "missing_evidence": ["eGFR", "uACR"],
+                    "latest_result_profile": None,
+                    "latest_result_ids": [],
+                    "follow_up_recommended": False,
+                    "follow_up_reason": None,
+                    "follow_up_summary": None,
+                    "last_updated_at": None,
+                },
+            },
             "encounters": encounters,
             "created_at": now,
             "updated_at": now,

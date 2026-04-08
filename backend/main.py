@@ -17,6 +17,7 @@ from cds.router import router as cds_router
 from hooks.router import router as hooks_router
 from dashboard.router import router as dashboard_router
 from simulation.router import router as simulation_router
+from interventions.router import router as interventions_router
 from _collection_initializer import CollectionInitializer
 from db.mdb import MongoDBConnector
 from simulation.worker import SimulationWorker
@@ -104,6 +105,7 @@ app.include_router(cds_router)
 app.include_router(hooks_router)
 app.include_router(dashboard_router)
 app.include_router(simulation_router)
+app.include_router(interventions_router)
 
 @app.get("/")
 async def read_root(request: Request):

@@ -415,6 +415,85 @@ export async function fetchLongitudinal(
 }
 
 // ---------------------------------------------------------------------------
+// KED Intervention Workflow
+// ---------------------------------------------------------------------------
+
+export interface KedWorkflowResponse {
+  patient_id: string
+  ked_gap_exists: boolean
+  ked_gap_open: boolean
+  workflow_status: "not_started" | "ordered" | "completed"
+  missing_evidence: string[]
+  latest_kidney_labs: Record<string, unknown>[]
+  follow_up_recommended: boolean
+  follow_up_reason: string | null
+}
+
+export interface OrderKedLabsResponse {
+  patient_id: string
+  workflow_status: string
+  ordered_at: string
+  required_evidence: string[]
+}
+
+export interface RecordKedResultsPayload {
+  result_profile: "stable" | "abnormal" | "concerning"
+  recorded_by?: string
+}
+
+export interface RecordKedResultsResponse {
+  patient_id: string
+  workflow_status: string
+  ked_gap_status: string
+  follow_up_recommended: boolean
+  follow_up_reason: string | null
+  labs_written: Record<string, unknown>[]
+}
+
+export interface FollowUpSummaryResponse {
+  title: string
+  summary: string
+  recommendations: string[]
+  based_on: Record<string, unknown>
+}
+
+export async function fetchKedWorkflow(
+  patientId: string,
+): Promise<KedWorkflowResponse> {
+  return apiFetch<KedWorkflowResponse>(`/interventions/ked/${patientId}`)
+}
+
+export async function orderKedLabs(
+  patientId: string,
+  orderedBy: string = "demo_user",
+): Promise<OrderKedLabsResponse> {
+  return apiFetch<OrderKedLabsResponse>(
+    `/interventions/ked/${patientId}/order`,
+    { method: "POST", body: JSON.stringify({ ordered_by: orderedBy }) },
+  )
+}
+
+export async function recordKedResults(
+  patientId: string,
+  payload: RecordKedResultsPayload,
+): Promise<RecordKedResultsResponse> {
+  return apiFetch<RecordKedResultsResponse>(
+    `/interventions/ked/${patientId}/results`,
+    { method: "POST", body: JSON.stringify(payload) },
+  )
+}
+
+export async function generateKedFollowUpSummary(
+  patientId: string,
+  requestedBy: string = "demo_user",
+): Promise<FollowUpSummaryResponse> {
+  return apiFetch<FollowUpSummaryResponse>(
+    `/interventions/ked/${patientId}/follow-up-summary`,
+    { method: "POST", body: JSON.stringify({ requested_by: requestedBy }) },
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Simulation worker
 // ---------------------------------------------------------------------------
 

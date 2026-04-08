@@ -717,8 +717,34 @@ class CDSService:
 
             # Determine last completion date
             last_completed = None
+            ked_evidence_received: list[str] = []
+            ked_evidence_missing: list[str] = []
+
             lab_loinc = measure.get("lab_loinc")
-            if lab_loinc:
+
+            # KED requires both eGFR and uACR — track each separately
+            if measure["measure_code"] == "KED":
+                egfr_dates = [
+                    lb.get("effective_date") for lb in labs
+                    if lb.get("loinc") == "62238-1" and lb.get("effective_date")
+                ]
+                uacr_dates = [
+                    lb.get("effective_date") for lb in labs
+                    if lb.get("loinc") == "14959-1" and lb.get("effective_date")
+                ]
+                if egfr_dates:
+                    ked_evidence_received.append("eGFR")
+                else:
+                    ked_evidence_missing.append("eGFR")
+                if uacr_dates:
+                    ked_evidence_received.append("uACR")
+                else:
+                    ked_evidence_missing.append("uACR")
+
+                all_dates = egfr_dates + uacr_dates
+                if len(ked_evidence_received) == 2 and all_dates:
+                    last_completed = max(all_dates)
+            elif lab_loinc:
                 matching = [lb for lb in labs if lb.get("loinc") == lab_loinc]
                 if matching:
                     dates = [lb.get("effective_date") for lb in matching if lb.get("effective_date")]
@@ -775,7 +801,7 @@ class CDSService:
                 if days_overdue > 90:
                     priority = self._bump_priority(priority)
 
-            care_gaps.append({
+            gap_entry: dict[str, Any] = {
                 "hedis_measure": measure["measure_code"],
                 "measure_name": measure["measure_name"],
                 "status": status,
@@ -783,7 +809,31 @@ class CDSService:
                 "due_by": due_by,
                 "days_overdue": days_overdue,
                 "priority": priority,
-            })
+            }
+
+            # KED: add workflow-aware metadata for the intervention workflow
+            if measure["measure_code"] == "KED":
+                workflow = p360.get("interventions", {}).get("ked_workflow", {})
+                gap_entry["workflow_status"] = workflow.get("status", "not_started")
+                gap_entry["closure_evidence"] = {
+                    "required": ["eGFR", "uACR"],
+                    "received": ked_evidence_received,
+                    "missing": ked_evidence_missing,
+                    "closed_at": (
+                        last_completed if status == "closed" else None
+                    ),
+                }
+                follow_up = workflow.get("follow_up_recommended", False)
+                gap_entry["follow_up"] = {
+                    "recommended": follow_up,
+                    "reason": workflow.get("follow_up_reason"),
+                    "status": (
+                        "pending_review" if follow_up
+                        else "not_needed"
+                    ),
+                }
+
+            care_gaps.append(gap_entry)
 
         self._repo.update_patient_360_care_gaps(patient_id, care_gaps)
         return care_gaps
