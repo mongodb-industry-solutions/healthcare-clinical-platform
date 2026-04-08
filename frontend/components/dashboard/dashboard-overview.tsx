@@ -220,12 +220,12 @@ function LiveCommandBar({
 }) {
   return (
     <Card className="border-border/60 bg-white shadow-sm">
-      <CardContent className="px-4 py-3">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="flex items-center gap-3">
+      <CardContent className="px-4 py-1">
+        <div className="flex flex-col gap-2.5 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex min-w-[208px] items-center gap-3">
             <div className="flex items-center gap-2">
               <Radio className="h-3.5 w-3.5 text-primary" />
-              <span className="text-sm font-medium">Board Status</span>
+              <span className="text-sm font-medium">Intervention Status</span>
             </div>
             <Badge
               variant={isRunning ? "default" : "secondary"}
@@ -238,22 +238,24 @@ function LiveCommandBar({
             </Badge>
           </div>
 
-          <div className="grid gap-2 md:grid-cols-3 xl:flex-1 xl:grid-cols-3 xl:gap-0">
+          <div className="grid gap-2 md:grid-cols-3 xl:flex-1 xl:grid-cols-[1.35fr_1fr_1fr] xl:gap-0">
             {metrics.map((metric, index) => (
               <div
                 key={metric.label}
                 className={cn(
-                  "flex min-h-[76px] flex-col justify-between rounded-md px-3 py-2 xl:rounded-none",
+                  "flex min-h-[66px] flex-col justify-between rounded-md border border-border/50 px-3 py-2 xl:min-h-[62px] xl:rounded-none xl:border-y-0 xl:border-r-0 xl:border-l-0",
+                  index === 0 &&
+                    "border-[#CFF5DD] bg-[#F6FFFA] xl:border-l xl:border-[#CFF5DD] xl:bg-[#F6FFFA]",
                   index > 0 && "xl:border-l xl:border-border/60",
                 )}
               >
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex items-start justify-between gap-3">
                   <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
                     {metric.label}
                   </p>
                   <p
                     className={cn(
-                      "text-2xl font-semibold leading-none",
+                      index === 0 ? "text-3xl font-semibold leading-none" : "text-2xl font-semibold leading-none",
                       metric.variant === "critical" && "text-destructive",
                       metric.variant === "warning" && "text-warning",
                     )}
@@ -261,7 +263,7 @@ function LiveCommandBar({
                     {metric.value}
                   </p>
                 </div>
-                <p className="mt-1 min-h-[32px] text-xs leading-4 text-muted-foreground">
+                <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
                   {metric.detail}
                 </p>
               </div>
@@ -294,7 +296,7 @@ function TopEscalationCard({
 
   const { patient, liveReading, thresholdBreaches, liveSignals, score } = candidate
   const topContext = getPatientContextSummary(patient)
-  const contextBadges = getPatientContextBadges(patient)
+  const headerBadges = getCandidateCoreBadges(candidate)
   const priorityLabel = getPriorityReviewLabel(score)
   const whySurfaced = getWhySurfacedReasons(candidate)
   const currentSignals = getPrioritySignals(candidate)
@@ -309,8 +311,7 @@ function TopEscalationCard({
             <div className="flex flex-wrap items-center gap-2">
               <CardTitle className="text-base">Priority Intervention</CardTitle>
               <Badge variant="destructive">{priorityLabel}</Badge>
-              <Badge variant="outline">Top of queue</Badge>
-              {contextBadges.slice(0, 3).map((badge) => (
+              {headerBadges.map((badge) => (
                 <Badge key={badge} variant="secondary" className="border-transparent bg-muted/50 text-foreground">
                   {badge}
                 </Badge>
@@ -384,7 +385,7 @@ function TopEscalationCard({
           </div>
 
           <div className="h-full rounded-lg border border-border/60 bg-white p-3 shadow-sm">
-            <p className="text-sm font-medium">Why this gap matters now</p>
+            <p className="text-sm font-medium">Escalation Drivers</p>
             <div className="mt-3 flex flex-wrap gap-2">
               {liveSignals.slice(0, 3).map((signal) => (
                 <Badge
@@ -627,8 +628,8 @@ function buildLiveMetrics({
       label: "Context-elevated gaps",
       value: String(clinicalSummary.contextElevatedGapCount),
       detail: isRunning
-        ? `${updatedLastMinute} patient records refreshed in the last minute.`
-        : "Open gaps currently amplified by patient context.",
+        ? `${updatedLastMinute} records refreshed in the last minute`
+        : "Open gaps elevated by live context",
       variant: "critical",
     },
     {
@@ -636,8 +637,8 @@ function buildLiveMetrics({
       value: String(clinicalSummary.interventionPatientCount),
       detail:
         activePatternCount > 0
-          ? `${activePatternCount} patients are showing live clinical pressure.`
-          : "Patients whose care gaps now warrant outreach, review, or ordering.",
+          ? `${activePatternCount} patients showing live pressure`
+          : "Patients needing outreach or review",
       variant: "warning",
     },
     {
@@ -645,10 +646,10 @@ function buildLiveMetrics({
       value: String(clinicalSummary.pressuredMeasureCount),
       detail:
         clinicalSummary.pressuredMeasureLabels.length > 0
-          ? `${clinicalSummary.pressuredMeasureLabels.join(", ")} currently drive the highest intervention pressure.`
+          ? `${clinicalSummary.pressuredMeasureLabels.join(", ")} under pressure`
           : recentEscalationPatients.size > 0
-            ? `${recentEscalationPatients.size} patient priorities changed recently.`
-            : "No HEDIS measures are currently elevated by live context.",
+            ? `${recentEscalationPatients.size} priorities changed recently`
+            : "Measures with unresolved burden",
     },
   ] satisfies LiveMetric[]
 }
@@ -977,34 +978,35 @@ function getPrimaryConcern(candidate: EscalationCandidate) {
 function deriveInterventionActions(candidate: EscalationCandidate) {
   const topGap = candidate.topGap
   const firstBreach = candidate.thresholdBreaches[0]
-  const actions = new Set<string>()
+  const actions: string[] = []
 
   if (topGap) {
-    actions.add(getCareGapMeasureActionLabel(topGap.hedis_measure))
-    getMeasureSpecificInterventions(candidate, topGap.hedis_measure).forEach((action) => actions.add(action))
-    actions.add(
-      `Route a DaVinci CDS recommendation for ${getCareGapMeasureDashboardLabel(topGap.hedis_measure).toLowerCase()} follow-up`,
-    )
+    actions.push(getCareGapMeasureActionLabel(topGap.hedis_measure))
   }
 
   if (candidate.eventLabel === "Hypoglycemia") {
-    actions.add("Initiate same-day outreach and confirm point-of-care glucose plan")
+    actions.push("Initiate same-day outreach and confirm glucose review plan")
   } else if (candidate.eventLabel === "Sepsis") {
-    actions.add("Escalate to clinician review immediately before closing the care gap workflow")
+    actions.push("Route to clinician review immediately for infection assessment")
   } else if (firstBreach) {
-    actions.add(`Review ${VITAL_CONFIG[firstBreach.vital].label} trend before completing intervention outreach`)
+    actions.push(
+      `Route to clinician review because ${VITAL_CONFIG[firstBreach.vital].label} is ${firstBreach.direction} the personalized threshold`,
+    )
   }
 
-  if (candidate.overdueGapCount > 0) {
-    actions.add("Convert the highest-priority open gap into an order, schedule, or outreach task today")
+  if (actions.length === 0 && topGap) {
+    getMeasureSpecificInterventions(candidate, topGap.hedis_measure).forEach((action) => {
+      if (!actions.includes(action)) {
+        actions.push(action)
+      }
+    })
   }
 
-  if (actions.size === 0) {
-    actions.add("Open the patient chart and confirm the next gap-closure action")
-    actions.add("Route the intervention to the quality or clinician workflow")
+  if (actions.length === 0) {
+    actions.push("Open the patient chart and confirm the next gap-closure action")
   }
 
-  return Array.from(actions).slice(0, 4)
+  return actions.slice(0, 2)
 }
 
 function getMeasureSpecificInterventions(candidate: EscalationCandidate, measure: string) {
@@ -1013,34 +1015,34 @@ function getMeasureSpecificInterventions(candidate: EscalationCandidate, measure
   if (measure === "CDC-HBA") {
     return [
       patient.flags.has_insulin
-        ? "Review insulin adherence and glucose trends before closing the HbA1c workflow"
-        : "Confirm diabetes follow-up is active before routing HbA1c outreach",
+        ? "Confirm glycemic follow-up timing if glucose instability continues"
+        : "Confirm diabetes follow-up is active before routing outreach",
     ]
   }
 
   if (measure === "KED") {
     return [
       patient.flags.has_ckd
-        ? "Prioritize eGFR and uACR completion because CKD context increases quality and clinical risk"
-        : "Confirm kidney monitoring is not already pending in the chart",
+        ? "Prioritize eGFR and uACR completion"
+        : "Confirm kidney monitoring is not already pending",
     ]
   }
 
   if (measure === "CBP") {
     return [
-      "Confirm blood pressure follow-up and antihypertensive adherence before closing outreach",
+      "Confirm blood pressure follow-up and control plan",
     ]
   }
 
   if (measure === "SPD") {
     return [
-      "Review active medication list and route statin-therapy outreach or clinician review",
+      "Review statin therapy gap and route medication follow-up",
     ]
   }
 
   if (measure === "EED") {
     return [
-      "Initiate retinal exam outreach and close the referral loop with the eye-care workflow",
+      "Initiate retinal exam outreach and close the referral loop",
     ]
   }
 
@@ -1088,12 +1090,7 @@ function getCandidateReasonLine(candidate: EscalationCandidate) {
 }
 
 function getQueueSupportBadges(candidate: EscalationCandidate) {
-  const badges = getPatientContextBadges(candidate.patient).slice(0, 2)
-  const topGap = candidate.topGap
-
-  if (topGap) {
-    badges.unshift(topGap.hedis_measure)
-  }
+  const badges = [...getCandidateCoreBadges(candidate)]
 
   if (candidate.recentAlertCount > 0) {
     badges.push(
@@ -1104,6 +1101,19 @@ function getQueueSupportBadges(candidate: EscalationCandidate) {
   if (candidate.overdueGapCount > 0) {
     badges.push(`${candidate.overdueGapCount} open care gap${candidate.overdueGapCount === 1 ? "" : "s"}`)
   }
+
+  return badges.slice(0, 3)
+}
+
+function getCandidateCoreBadges(candidate: EscalationCandidate) {
+  const badges: string[] = []
+  const topGap = candidate.topGap
+
+  if (topGap) {
+    badges.push(topGap.hedis_measure)
+  }
+
+  badges.push(...getPatientContextBadges(candidate.patient).slice(0, 2))
 
   return badges.slice(0, 3)
 }
@@ -1288,8 +1298,8 @@ function getPrioritySignals(candidate: EscalationCandidate) {
 }
 
 function getPriorityReviewLabel(score: number) {
-  if (score >= 380) return "Immediate review"
-  if (score >= 260) return "Escalate now"
+  if (score >= 380) return "Escalated"
+  if (score >= 260) return "Escalated"
   if (score >= 180) return "High priority"
   return "Priority watch"
 }
