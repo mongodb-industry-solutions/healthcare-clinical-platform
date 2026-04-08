@@ -437,98 +437,6 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base font-medium">Active Conditions</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {conditions.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No active conditions</p>
-                ) : (
-                  conditions.map((condition, i) => (
-                    <div key={i} className="flex items-start gap-2 text-sm">
-                      <div className="mt-0.5 h-2 w-2 rounded-full bg-chart-1" />
-                      <div className="flex-1">
-                        <span>{condition.display}</span>
-                        <span className="text-xs text-muted-foreground ml-2">
-                          ({condition.icd10})
-                        </span>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base font-medium flex items-center gap-2">
-                <Pill className="h-4 w-4" />
-                Medications
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {medications.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No active medications</p>
-                ) : (
-                  medications.map((med, i) => (
-                    <div key={i} className="text-sm">
-                      <div className="font-medium">{med.display}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {med.dose} - {med.frequency}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base font-medium">Recent Labs</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {labs.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No recent labs</p>
-                ) : (
-                  labs.map((lab, i) => (
-                    <div key={i} className="flex items-center justify-between text-sm">
-                      <span className="truncate">{lab.display}</span>
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={cn(
-                            "font-mono tabular-nums",
-                            (lab.interpretation === "H" || lab.interpretation === "HH") &&
-                              "text-destructive",
-                            (lab.interpretation === "L" || lab.interpretation === "LL") &&
-                              "text-warning",
-                          )}
-                        >
-                          {lab.value} {lab.unit}
-                        </span>
-                        {(lab.interpretation === "H" || lab.interpretation === "HH") && (
-                          <Badge variant="destructive" className="text-[10px] px-1">
-                            H
-                          </Badge>
-                        )}
-                        {(lab.interpretation === "L" || lab.interpretation === "LL") && (
-                          <Badge className="text-[10px] px-1 bg-warning text-warning-foreground">
-                            L
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
           {care_gaps.length > 0 && (
             <Card>
               <CardHeader className="pb-2">
@@ -542,13 +450,21 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
                       <div className="flex items-center justify-between">
                         <span className="font-medium">{gap.hedis_measure}</span>
                         <Badge
-                          variant={gap.days_overdue > 0 ? "destructive" : "outline"}
-                          className="text-xs"
+                          variant={getCareGapBadgeTone(gap)}
+                          className={cn(
+                            "text-xs",
+                            getCareGapBadgeClassName(gap),
+                          )}
                         >
-                          {gap.days_overdue > 0 ? `${gap.days_overdue}d overdue` : "Due soon"}
+                          {getCareGapBadgeLabel(gap)}
                         </Badge>
                       </div>
                       <p className="text-xs text-muted-foreground mt-0.5">{gap.measure_name}</p>
+                      {getCareGapSecondaryText(gap) && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {getCareGapSecondaryText(gap)}
+                        </p>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -935,4 +851,62 @@ function shortCondition(display: string): string {
 function capitalize(value: string): string {
   if (!value) return value
   return `${value[0].toUpperCase()}${value.slice(1)}`
+}
+
+function getCareGapBadgeLabel(gap: Patient360["care_gaps"][number]) {
+  if (gap.status === "closed" && gap.follow_up?.recommended) {
+    return "Follow-up needed"
+  }
+  if (gap.status === "closed") {
+    return "Closed"
+  }
+  if (gap.days_overdue > 0) {
+    return `${gap.days_overdue}d overdue`
+  }
+  if (gap.workflow_status === "ordered") {
+    return "In progress"
+  }
+  if (gap.closure_evidence?.missing?.length) {
+    return gap.closure_evidence.missing.length === 1
+      ? `${gap.closure_evidence.missing[0]} missing`
+      : `${gap.closure_evidence.missing.length} items missing`
+  }
+  return "Due soon"
+}
+
+function getCareGapBadgeTone(gap: Patient360["care_gaps"][number]): "default" | "secondary" | "destructive" | "outline" {
+  if (gap.days_overdue > 0) return "destructive"
+  if (gap.status === "closed" && gap.follow_up?.recommended) return "secondary"
+  if (gap.status === "closed") return "secondary"
+  if (gap.workflow_status === "ordered") return "default"
+  return "outline"
+}
+
+function getCareGapBadgeClassName(gap: Patient360["care_gaps"][number]) {
+  if (gap.status === "closed" && gap.follow_up?.recommended) {
+    return "border-warning/30 bg-warning/10 text-warning"
+  }
+  if (gap.status === "closed") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700"
+  }
+  return ""
+}
+
+function getCareGapSecondaryText(gap: Patient360["care_gaps"][number]) {
+  if (gap.status === "closed" && gap.follow_up?.recommended) {
+    return gap.follow_up.reason ?? "Clinical review recommended after measure closure"
+  }
+  if (gap.status === "closed" && gap.last_completed) {
+    return `Completed ${formatRelativeTime(gap.last_completed)}`
+  }
+  if (gap.workflow_status === "ordered") {
+    return "Intervention workflow started and awaiting evidence"
+  }
+  if (gap.closure_evidence?.missing?.length) {
+    return `Missing evidence: ${gap.closure_evidence.missing.join(", ")}`
+  }
+  if (gap.days_overdue > 0) {
+    return `Due by ${gap.due_by}`
+  }
+  return null
 }

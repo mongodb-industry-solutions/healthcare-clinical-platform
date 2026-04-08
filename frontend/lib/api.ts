@@ -427,6 +427,7 @@ export interface KedWorkflowResponse {
   latest_kidney_labs: Record<string, unknown>[]
   follow_up_recommended: boolean
   follow_up_reason: string | null
+  follow_up_summary: FollowUpSummaryResponse | null
 }
 
 export interface OrderKedLabsResponse {

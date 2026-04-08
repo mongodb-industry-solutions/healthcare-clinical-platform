@@ -96,6 +96,7 @@ class KedWorkflowStatusResponse(BaseModel):
     latest_kidney_labs: list[dict[str, Any]] = Field(default_factory=list)
     follow_up_recommended: bool = False
     follow_up_reason: Optional[str] = None
+    follow_up_summary: Optional[dict[str, Any]] = None
 
 
 class OrderKedLabsResponse(BaseModel):

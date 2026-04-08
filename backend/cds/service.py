@@ -836,6 +836,7 @@ class CDSService:
             care_gaps.append(gap_entry)
 
         self._repo.update_patient_360_care_gaps(patient_id, care_gaps)
+        self._sync_ked_workflow(patient_id, p360, care_gaps)
         return care_gaps
 
     @staticmethod
@@ -881,6 +882,60 @@ class CDSService:
         if (next_due - now).days <= 60:
             return next_due
         return prev_due
+
+    def _sync_ked_workflow(
+        self,
+        patient_id: str,
+        p360: dict[str, Any],
+        care_gaps: list[dict[str, Any]],
+    ) -> None:
+        """Keep interventions.ked_workflow aligned with the computed KED gap state."""
+        ked_gap = next(
+            (gap for gap in care_gaps if gap.get("hedis_measure") == "KED"),
+            None,
+        )
+        if not ked_gap:
+            return
+
+        existing_workflow = p360.get("interventions", {}).get("ked_workflow", {})
+        closure_evidence = ked_gap.get("closure_evidence", {})
+        follow_up = ked_gap.get("follow_up", {})
+        gap_status = ked_gap.get("status", "open")
+        existing_status = existing_workflow.get("status", "not_started")
+
+        if gap_status == "closed":
+            workflow_status = "completed"
+        elif existing_status == "ordered":
+            workflow_status = "ordered"
+        else:
+            workflow_status = "not_started"
+
+        closed_at = closure_evidence.get("closed_at")
+        ordered_at = existing_workflow.get("ordered_at")
+        completed_at = existing_workflow.get("completed_at")
+
+        ked_workflow = {
+            "status": workflow_status,
+            "ordered_at": ordered_at,
+            "ordered_by": existing_workflow.get("ordered_by"),
+            "completed_at": completed_at or closed_at,
+            "completed_by": existing_workflow.get("completed_by"),
+            "required_evidence": closure_evidence.get("required", ["eGFR", "uACR"]),
+            "missing_evidence": closure_evidence.get("missing", ["eGFR", "uACR"]),
+            "latest_result_profile": existing_workflow.get("latest_result_profile"),
+            "latest_result_ids": existing_workflow.get("latest_result_ids", []),
+            "follow_up_recommended": follow_up.get("recommended", False),
+            "follow_up_reason": follow_up.get("reason"),
+            "follow_up_summary": existing_workflow.get("follow_up_summary"),
+            "last_updated_at": datetime.utcnow().isoformat(),
+        }
+
+        if workflow_status == "completed":
+            ked_workflow["missing_evidence"] = []
+            if not ked_workflow["completed_at"]:
+                ked_workflow["completed_at"] = closed_at or datetime.utcnow().isoformat()
+
+        self._repo.update_patient_360_ked_workflow(patient_id, ked_workflow)
 
     @staticmethod
     def _bump_priority(priority: str) -> str:

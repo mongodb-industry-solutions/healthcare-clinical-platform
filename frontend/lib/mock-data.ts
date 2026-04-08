@@ -118,6 +118,18 @@ export interface CareGap {
   due_by: string
   days_overdue: number
   priority: "critical" | "high" | "medium" | "low"
+  workflow_status?: "not_started" | "ordered" | "completed" | "reviewed"
+  closure_evidence?: {
+    required: string[]
+    received: string[]
+    missing: string[]
+    closed_at: string | null
+  }
+  follow_up?: {
+    recommended: boolean
+    reason: string | null
+    status: "not_needed" | "pending_review" | "reviewed"
+  }
 }
 
 export interface Encounter {

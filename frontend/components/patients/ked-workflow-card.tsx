@@ -19,6 +19,7 @@ import {
   ClipboardCheck,
   FlaskConical,
   Loader2,
+  Sparkles,
   Stethoscope,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -39,7 +40,6 @@ export function KedWorkflowCard({
 }: KedWorkflowCardProps) {
   const { bumpDataVersion } = useDemo()
   const [workflow, setWorkflow] = React.useState<KedWorkflowResponse | null>(null)
-  const [followUpSummary, setFollowUpSummary] = React.useState<FollowUpSummaryResponse | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [actionLoading, setActionLoading] = React.useState(false)
   const [showResultsDialog, setShowResultsDialog] = React.useState(false)
@@ -121,8 +121,9 @@ export function KedWorkflowCard({
     setActionLoading(true)
     try {
       const summary = await generateKedFollowUpSummary(patientId)
-      setFollowUpSummary(summary)
+      setWorkflow((prev) => (prev ? { ...prev, follow_up_summary: summary } : prev))
       toast.success("Follow-up summary generated")
+      await loadWorkflow()
     } catch (err) {
       toast.error("Failed to generate summary", {
         description: err instanceof Error ? err.message : undefined,
@@ -241,7 +242,7 @@ export function KedWorkflowCard({
                 </div>
               )}
 
-              {workflow.follow_up_recommended && !followUpSummary && (
+              {workflow.follow_up_recommended && !workflow.follow_up_summary && (
                 <Button
                   variant="outline"
                   onClick={handleGenerateSummary}
@@ -249,6 +250,7 @@ export function KedWorkflowCard({
                   className="w-full"
                 >
                   {actionLoading && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+                  {!actionLoading && <Sparkles className="mr-1.5 h-4 w-4" />}
                   Generate Clinician Review Summary
                 </Button>
               )}
@@ -291,7 +293,7 @@ export function KedWorkflowCard({
       </Card>
 
       {/* Follow-up summary (rendered outside the main card) */}
-      {followUpSummary && <KedFollowUpSummary summary={followUpSummary} />}
+      {workflow.follow_up_summary && <KedFollowUpSummary summary={workflow.follow_up_summary} />}
 
       {/* Results dialog */}
       <KedResultsDialog

@@ -172,6 +172,18 @@ class CDSRepository:
             }},
         )
 
+    def update_patient_360_ked_workflow(
+        self, patient_id: str, ked_workflow: dict[str, Any],
+    ) -> None:
+        """Replace interventions.ked_workflow in a Patient 360 document."""
+        self._db.get_collection(PATIENT_360_COLLECTION).update_one(
+            {"patient_id": patient_id},
+            {"$set": {
+                "interventions.ked_workflow": ked_workflow,
+                "updated_at": datetime.utcnow().isoformat(),
+            }},
+        )
+
     def update_patient_360_thresholds(
         self, patient_id: str, thresholds: dict[str, Any],
     ) -> None:

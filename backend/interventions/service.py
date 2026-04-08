@@ -90,6 +90,7 @@ class InterventionService:
             latest_kidney_labs=kidney_labs,
             follow_up_recommended=workflow.get("follow_up_recommended", False),
             follow_up_reason=workflow.get("follow_up_reason"),
+            follow_up_summary=workflow.get("follow_up_summary"),
         )
 
     # ------------------------------------------------------------------
