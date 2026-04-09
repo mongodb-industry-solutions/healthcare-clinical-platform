@@ -38,6 +38,13 @@ export type DataModelSummary = {
   metrics: Array<{ label: string; value: string }>
 }
 
+type FollowUpSummary = {
+  title?: string
+  summary?: string
+  recommendations?: string[]
+  based_on?: Record<string, unknown>
+}
+
 type KedWorkflow = {
   status?: string
   ordered_at?: string | null
@@ -48,6 +55,7 @@ type KedWorkflow = {
   latest_result_ids?: string[]
   follow_up_recommended?: boolean
   follow_up_reason?: string | null
+  follow_up_summary?: FollowUpSummary | null
 }
 
 type Patient360WithWorkflow = Patient360 & {
@@ -310,7 +318,6 @@ export function buildPatientEvolution(
   patient: Patient360,
   options: EvolutionOptions = {},
 ) {
-  const activeAlerts = options.alerts ?? patient.active_alerts
   const careGaps = options.careGaps ?? patient.care_gaps
   const refreshedAt = options.lastRefreshedAt ?? patient.vitals_summary?.refreshed_at ?? null
   const workflow = getKedWorkflow(patient as Patient360WithWorkflow)
@@ -322,9 +329,60 @@ export function buildPatientEvolution(
 
   const milestones: EvolutionMilestone[] = []
 
+  const kedGap = getKedGap(careGaps)
+  const workflowTimestamp =
+    workflow?.completed_at ??
+    workflow?.last_updated_at ??
+    workflow?.ordered_at ??
+    refreshedAt ??
+    patient.updated_at
+
+  if (workflowState !== "not_started" || workflow?.follow_up_recommended || kedGap?.workflow_status) {
+    const kedDiffs: FieldDiff[] = [
+      {
+        path: "interventions.ked_workflow.status",
+        kind: "changed",
+        before: "not_started",
+        after: workflowState,
+      },
+      {
+        path: "care_gaps.KED.workflow_status",
+        kind: "changed",
+        before: "not_started",
+        after: kedGap?.workflow_status ?? workflowState,
+      },
+      {
+        path: "care_gaps.KED.closure_evidence.received",
+        kind: "changed",
+        before: [],
+        after: kedGap?.closure_evidence?.received ?? [],
+      },
+    ]
+
+    const followUpSummary = workflow?.follow_up_summary
+    if (followUpSummary?.title) {
+      kedDiffs.push({
+        path: "interventions.ked_workflow.follow_up_summary",
+        kind: "added",
+        after: {
+          title: followUpSummary.title,
+          summary: followUpSummary.summary,
+          recommendations: followUpSummary.recommendations,
+        },
+      })
+    }
+
+    milestones.push({
+      id: "ked-workflow-updated",
+      title: "KED workflow updated",
+      timestamp: workflowTimestamp,
+      diffs: kedDiffs,
+    })
+  }
+
   milestones.push({
-    id: "initialized",
-    title: "Patient 360 initialized",
+    id: "personalized",
+    title: "Patient 360 personalized",
     timestamp: patient.created_at,
     diffs: [
       { path: "demographics.name", kind: "added", after: patient.demographics.name },
@@ -381,102 +439,6 @@ export function buildPatientEvolution(
       title: "Thresholds personalized",
       timestamp: refreshedAt ?? patient.updated_at,
       diffs: thresholdDiffs.slice(0, 4),
-    })
-  }
-
-  const latestAlert = [...activeAlerts]
-    .filter((alert) => Boolean(alert.created_at))
-    .sort((left, right) => toTimestamp(right.created_at) - toTimestamp(left.created_at))[0]
-
-  if (latestAlert) {
-    milestones.push({
-      id: "alert-added",
-      title: "Alert added",
-      timestamp: latestAlert.created_at,
-      diffs: [
-        { path: "active_alerts.title", kind: "added", after: latestAlert.title },
-        {
-          path: "active_alerts.count",
-          kind: "changed",
-          before: Math.max(activeAlerts.length - 1, 0),
-          after: activeAlerts.length,
-        },
-        { path: "active_alerts.status", kind: "added", after: latestAlert.status },
-      ],
-    })
-  }
-
-  const kedGap = getKedGap(careGaps)
-  const workflowTimestamp =
-    workflow?.completed_at ??
-    workflow?.last_updated_at ??
-    workflow?.ordered_at ??
-    refreshedAt ??
-    patient.updated_at
-
-  if (workflowState !== "not_started" || workflow?.follow_up_recommended || kedGap?.workflow_status) {
-    milestones.push({
-      id: "ked-workflow-updated",
-      title: "KED workflow updated",
-      timestamp: workflowTimestamp,
-      diffs: [
-        {
-          path: "interventions.ked_workflow.status",
-          kind: "changed",
-          before: "not_started",
-          after: workflowState,
-        },
-        {
-          path: "care_gaps.KED.workflow_status",
-          kind: "changed",
-          before: "not_started",
-          after: kedGap?.workflow_status ?? workflowState,
-        },
-        {
-          path: "care_gaps.KED.closure_evidence.received",
-          kind: "changed",
-          before: [],
-          after: kedGap?.closure_evidence?.received ?? [],
-        },
-      ],
-    })
-  }
-
-  const careGapWithUpdate = careGaps.find(
-    (gap) =>
-      gap.status === "closed" ||
-      (gap.closure_evidence?.received?.length ?? 0) > 0 ||
-      Boolean(gap.follow_up?.recommended),
-  )
-
-  if (careGapWithUpdate) {
-    milestones.push({
-      id: "care-gap-status-updated",
-      title: "Care gap status updated",
-      timestamp:
-        careGapWithUpdate.closure_evidence?.closed_at ??
-        workflowTimestamp ??
-        patient.updated_at,
-      diffs: [
-        {
-          path: `care_gaps.${careGapWithUpdate.hedis_measure}.status`,
-          kind: "changed",
-          before: careGapWithUpdate.status === "closed" ? "open" : "pending",
-          after: careGapWithUpdate.status,
-        },
-        {
-          path: `care_gaps.${careGapWithUpdate.hedis_measure}.closure_evidence.received`,
-          kind: "changed",
-          before: [],
-          after: careGapWithUpdate.closure_evidence?.received ?? [],
-        },
-        {
-          path: `care_gaps.${careGapWithUpdate.hedis_measure}.follow_up`,
-          kind: "changed",
-          before: "Not assessed",
-          after: careGapWithUpdate.follow_up ?? "No follow-up action",
-        },
-      ],
     })
   }
 

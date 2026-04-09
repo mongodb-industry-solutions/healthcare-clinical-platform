@@ -18,7 +18,6 @@ import {
   TrendingUp,
   Wind,
   Activity as ActivityIcon,
-  AlertCircle,
   CheckCircle2,
 } from "lucide-react"
 
@@ -43,6 +42,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { type Patient360, type VitalsTimeSeries } from "@/lib/mock-data"
 import { DataModelToggleCard } from "@/components/mongodb/data-model-toggle-card"
@@ -229,45 +229,78 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
         </Button>
       </div>
 
+      {/* ---- Clinical Conditions + Care Gaps inline strip ---- */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="flex flex-col gap-2">
+          <p className="text-xs font-medium text-muted-foreground">Clinical Conditions</p>
+          <div className="flex flex-wrap gap-1.5">
+            {flags.has_beta_blocker && (
+              <ConditionChip label="Beta-blocker" effect="HR threshold: 90 bpm (vs 100)" />
+            )}
+            {flags.has_insulin && (
+              <ConditionChip label="Insulin therapy" effect="Hypoglycemia monitoring enabled" />
+            )}
+            {flags.has_ckd && (
+              <ConditionChip label="CKD patient" effect="SpO2 threshold: 92% (vs 95)" />
+            )}
+            {flags.has_ace_inhibitor && (
+              <ConditionChip label="ACE inhibitor" effect="Potassium monitoring" />
+            )}
+            {!flags.has_beta_blocker && !flags.has_insulin && !flags.has_ckd && !flags.has_ace_inhibitor && (
+              <span className="text-xs text-muted-foreground italic">No active clinical conditions</span>
+            )}
+          </div>
+        </div>
+
+        {care_gaps.length > 0 && (
+          <div className="flex flex-col gap-2">
+            <p className="text-xs font-medium text-muted-foreground">Care Gaps</p>
+            <div className="flex flex-wrap gap-1.5">
+              {care_gaps.map((gap, i) => (
+                <CareGapChip key={i} gap={gap} />
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* ---- Summary + Alerts: side by side ---- */}
       <div className="grid gap-4 lg:grid-cols-5">
-        <Card className="lg:col-span-3">
-          <CardHeader className="pb-1.5">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Clinical Summary</CardTitle>
-          </CardHeader>
-          <CardContent>
+        <Card className="gap-0 py-4 lg:col-span-3">
+          <div className="px-5 pb-1.5">
+            <p className="text-sm font-medium text-muted-foreground">Clinical Summary</p>
+          </div>
+          <div className="px-5">
             <p className="text-sm leading-relaxed">{narrative}</p>
-          </CardContent>
+          </div>
         </Card>
 
         <Card className={cn(
-          "lg:col-span-2",
+          "gap-0 py-4 lg:col-span-2",
           active_alerts.some((a) => a.severity === "critical") && "border-destructive/30",
         )}>
-          <CardHeader className="pb-1.5">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Active Alerts</CardTitle>
-              <div className="flex items-center gap-1.5">
-                {active_alerts.filter((a) => a.severity === "critical").length > 0 && (
-                  <Badge variant="destructive" className="text-[10px] px-1.5 h-5">
-                    {active_alerts.filter((a) => a.severity === "critical").length} critical
-                  </Badge>
-                )}
-                {active_alerts.filter((a) => a.severity === "high").length > 0 && (
-                  <Badge className="text-[10px] px-1.5 h-5 bg-warning text-warning-foreground">
-                    {active_alerts.filter((a) => a.severity === "high").length} high
-                  </Badge>
-                )}
-              </div>
+          <div className="flex items-center justify-between px-5 pb-1.5">
+            <p className="text-sm font-medium text-muted-foreground">Active Alerts</p>
+            <div className="flex items-center gap-1.5">
+              {active_alerts.filter((a) => a.severity === "critical").length > 0 && (
+                <Badge variant="destructive" className="text-[10px] px-1.5 h-5">
+                  {active_alerts.filter((a) => a.severity === "critical").length} critical
+                </Badge>
+              )}
+              {active_alerts.filter((a) => a.severity === "high").length > 0 && (
+                <Badge className="text-[10px] px-1.5 h-5 bg-warning text-warning-foreground">
+                  {active_alerts.filter((a) => a.severity === "high").length} high
+                </Badge>
+              )}
             </div>
-          </CardHeader>
-          <CardContent>
+          </div>
+          <div className="px-5">
             {active_alerts.length === 0 ? (
               <p className="text-sm text-muted-foreground">No active alerts</p>
             ) : (
               <CompactAlertList alerts={active_alerts} />
             )}
-          </CardContent>
+          </div>
         </Card>
       </div>
 
@@ -469,72 +502,6 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
             careGaps={care_gaps}
             onWorkflowUpdated={reloadPatientData}
           />
-
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base font-medium">Clinical Context</CardTitle>
-              <CardDescription>Factors affecting alert thresholds</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                <ContextFlag
-                  label="Beta-blocker therapy"
-                  active={flags.has_beta_blocker}
-                  effect="HR threshold: 90 bpm (vs 100)"
-                />
-                <ContextFlag
-                  label="Insulin therapy"
-                  active={flags.has_insulin}
-                  effect="Hypoglycemia monitoring enabled"
-                />
-                <ContextFlag
-                  label="CKD patient"
-                  active={flags.has_ckd}
-                  effect="SpO2 threshold: 92% (vs 95)"
-                />
-                <ContextFlag
-                  label="ACE inhibitor"
-                  active={flags.has_ace_inhibitor}
-                  effect="Potassium monitoring"
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          {care_gaps.length > 0 && (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base font-medium">Care Gaps</CardTitle>
-                <CardDescription>HEDIS quality measures</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {care_gaps.map((gap, i) => (
-                    <div key={i} className="text-sm">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium">{gap.hedis_measure}</span>
-                        <Badge
-                          variant={getCareGapBadgeTone(gap)}
-                          className={cn(
-                            "text-xs",
-                            getCareGapBadgeClassName(gap),
-                          )}
-                        >
-                          {getCareGapBadgeLabel(gap)}
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-0.5">{gap.measure_name}</p>
-                      {getCareGapSecondaryText(gap) && (
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {getCareGapSecondaryText(gap)}
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
         </div>
       </div>
 
@@ -917,32 +884,65 @@ function TrendIndicator({ trend }: { trend: "stable" | "increasing" | "decreasin
   )
 }
 
-function ContextFlag({
-  label,
-  active,
-  effect,
-}: {
-  label: string
-  active: boolean
-  effect: string
-}) {
+function ConditionChip({ label, effect }: { label: string; effect: string }) {
   return (
-    <div
-      className={cn(
-        "flex items-start gap-2 rounded-md p-2 text-sm",
-        active ? "bg-primary/5" : "opacity-50",
-      )}
-    >
-      {active ? (
-        <CheckCircle2 className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-      ) : (
-        <AlertCircle className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-      )}
-      <div>
-        <div className={cn(active ? "font-medium" : "text-muted-foreground")}>{label}</div>
-        {active && <div className="text-xs text-muted-foreground">{effect}</div>}
-      </div>
-    </div>
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
+        >
+          <CheckCircle2 className="h-3 w-3" />
+          {label}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto max-w-xs p-3" side="bottom" align="start">
+        <p className="text-xs font-medium">{label}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{effect}</p>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+function CareGapChip({ gap }: { gap: Patient360["care_gaps"][number] }) {
+  const statusLabel = getCareGapBadgeLabel(gap)
+  const secondary = getCareGapSecondaryText(gap)
+
+  const isClosed = gap.status === "closed" && !gap.follow_up?.recommended
+  const needsFollowUp = gap.status === "closed" && gap.follow_up?.recommended
+  const isOverdue = gap.days_overdue > 0
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+            isClosed && "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-400",
+            needsFollowUp && "border-warning/30 bg-warning/10 text-warning hover:bg-warning/20",
+            isOverdue && "border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/20",
+            !isClosed && !needsFollowUp && !isOverdue && "border-border bg-muted/50 text-foreground hover:bg-muted",
+          )}
+        >
+          {gap.hedis_measure}
+          <span className="opacity-70">{statusLabel}</span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto max-w-xs p-3" side="bottom" align="start">
+        <p className="text-xs font-medium">{gap.hedis_measure}</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">{gap.measure_name}</p>
+        <div className="mt-2">
+          <Badge
+            variant={getCareGapBadgeTone(gap)}
+            className={cn("text-[10px]", getCareGapBadgeClassName(gap))}
+          >
+            {statusLabel}
+          </Badge>
+        </div>
+        {secondary && (
+          <p className="mt-2 text-xs text-muted-foreground">{secondary}</p>
+        )}
+      </PopoverContent>
+    </Popover>
   )
 }
 

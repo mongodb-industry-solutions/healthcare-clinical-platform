@@ -1,6 +1,6 @@
 "use client"
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { ClipboardList } from "lucide-react"
 import type { FollowUpSummaryResponse } from "@/lib/api"
@@ -11,14 +11,12 @@ interface KedFollowUpSummaryProps {
 
 export function KedFollowUpSummary({ summary }: KedFollowUpSummaryProps) {
   return (
-    <Card className="border-amber-200 bg-amber-50/30 dark:border-amber-800 dark:bg-amber-950/20">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium flex items-center gap-2">
-          <ClipboardList className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-          {summary.title}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
+    <Card className="gap-0 py-4 border-amber-200 bg-amber-50/30 dark:border-amber-800 dark:bg-amber-950/20">
+      <div className="flex items-center gap-2 px-5">
+        <ClipboardList className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+        <p className="text-sm font-semibold">{summary.title}</p>
+      </div>
+      <div className="px-5 pt-2 space-y-3">
         <p className="text-sm leading-relaxed">{summary.summary}</p>
 
         <div>
@@ -39,7 +37,7 @@ export function KedFollowUpSummary({ summary }: KedFollowUpSummaryProps) {
             ))}
           </ul>
         </div>
-      </CardContent>
+      </div>
     </Card>
   )
 }
