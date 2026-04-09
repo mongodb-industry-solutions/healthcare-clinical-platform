@@ -74,7 +74,7 @@ export function DataModelToggleCard({
             </div>
             <JsonTreeView
               value={rawFhirBundle}
-              defaultCollapsedDepth={99}
+              collapsed={3}
               maxHeightClassName={jsonMaxHeightClassName}
             />
           </>
@@ -95,7 +95,7 @@ export function DataModelToggleCard({
         </div>
         <JsonTreeView
           value={patient360}
-          defaultCollapsedDepth={0}
+          collapsed={1}
           maxHeightClassName={jsonMaxHeightClassName}
         />
       </TabsContent>
