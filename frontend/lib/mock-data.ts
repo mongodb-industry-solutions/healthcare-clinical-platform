@@ -46,6 +46,9 @@ export interface Patient360 {
   }
   active_alerts: Alert[]
   care_gaps: CareGap[]
+  interventions?: {
+    ked_workflow?: KedWorkflow
+  }
   encounters: Encounter[]
   created_at: string
   updated_at: string
@@ -130,6 +133,22 @@ export interface CareGap {
     reason: string | null
     status: "not_needed" | "pending_review" | "reviewed"
   }
+}
+
+export interface KedWorkflow {
+  status?: "not_started" | "ordered" | "completed" | "reviewed" | string
+  ordered_at?: string | null
+  completed_at?: string | null
+  last_updated_at?: string | null
+  ordered_by?: string | null
+  completed_by?: string | null
+  latest_result_profile?: string | null
+  latest_result_ids?: string[]
+  required_evidence?: string[]
+  missing_evidence?: string[]
+  follow_up_recommended?: boolean
+  follow_up_reason?: string | null
+  follow_up_summary?: Record<string, unknown> | null
 }
 
 export interface Encounter {

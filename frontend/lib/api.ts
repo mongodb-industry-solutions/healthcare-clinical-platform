@@ -99,6 +99,7 @@ export interface ThresholdBreach {
 
 export interface PatientDetailResponse {
   patient: Patient360
+  fhir_bundle?: unknown | null
   risk_score: number
   time_since_last_alert: string | null
   threshold_breaches: ThresholdBreach[]

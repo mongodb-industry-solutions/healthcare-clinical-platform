@@ -6,6 +6,8 @@ import {
   AlertTriangle,
   ArrowLeft,
   ChevronRight,
+  Database,
+  GitBranch,
   Heart,
   Loader2,
   Pill,
@@ -41,6 +43,9 @@ import {
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { type Patient360, type VitalsTimeSeries } from "@/lib/mock-data"
+import { DataModelToggleCard } from "@/components/mongodb/data-model-toggle-card"
+import { MongodbActivityPanel } from "@/components/mongodb/mongodb-activity-panel"
+import { Patient360EvolutionCard } from "@/components/mongodb/patient-360-evolution-card"
 import { VitalsChart, type ChartAnnotation } from "@/components/patients/vitals-chart"
 import { KedWorkflowCard } from "@/components/patients/ked-workflow-card"
 
@@ -55,6 +60,7 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
   const [error, setError] = React.useState<string | null>(null)
   const [vitalsHours, setVitalsHours] = React.useState(24)
   const [annotations, setAnnotations] = React.useState<ChartAnnotation[]>([])
+  const [showDataModelDialog, setShowDataModelDialog] = React.useState(false)
   const [showAnnotationDialog, setShowAnnotationDialog] = React.useState(false)
   const [annotationLabel, setAnnotationLabel] = React.useState("")
   const [annotationType, setAnnotationType] = React.useState<ChartAnnotation["type"]>("note")
@@ -134,7 +140,7 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
   return (
     <div className="flex flex-col gap-6 p-6">
       {/* ---- Patient banner ---- */}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <Button variant="ghost" size="icon" asChild>
           <Link href="/patients">
             <ArrowLeft className="h-4 w-4" />
@@ -164,6 +170,14 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
             )}
           </p>
         </div>
+
+        <Button
+          className="h-10 rounded-full border border-[#0b5d3b] bg-[#0f5f3d] px-4 text-white shadow-sm transition-all hover:bg-[#0c4f33] hover:shadow-md"
+          onClick={() => setShowDataModelDialog(true)}
+        >
+          <Database className="h-4 w-4" />
+          MongoDB Insights
+        </Button>
       </div>
 
       {/* ---- Summary + Alerts: side by side ---- */}
@@ -396,6 +410,7 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
               )}
             </CardContent>
           </Card>
+
         </div>
 
         {/* ---- Right sidebar ---- */}
@@ -473,6 +488,78 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
           )}
         </div>
       </div>
+
+      <Dialog open={showDataModelDialog} onOpenChange={setShowDataModelDialog}>
+        <DialogContent className="max-h-[90vh] overflow-hidden p-0 sm:max-w-5xl">
+          <div className="flex max-h-[90vh] flex-col">
+            <DialogHeader className="border-b px-6 py-5">
+              <DialogTitle>MongoDB Insights</DialogTitle>
+              <DialogDescription>
+                Explore the data model, recent MongoDB activity, and Patient 360 evolution for this
+                patient.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="overflow-auto px-6 py-5">
+              <Tabs defaultValue="data-model" className="gap-4">
+                <TabsList className="grid h-auto w-full grid-cols-1 gap-2 rounded-xl border border-[#0f5f3d]/15 bg-[#0f5f3d]/5 p-1.5 md:grid-cols-3">
+                  <TabsTrigger
+                    value="data-model"
+                    className="h-11 rounded-lg px-4 text-sm font-medium data-[state=active]:border-[#0f5f3d] data-[state=active]:bg-[#0f5f3d] data-[state=active]:text-white data-[state=active]:shadow-sm"
+                  >
+                    <Database className="h-4 w-4" />
+                    Data Model
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="mongodb-activity"
+                    className="h-11 rounded-lg px-4 text-sm font-medium data-[state=active]:border-[#0f5f3d] data-[state=active]:bg-[#0f5f3d] data-[state=active]:text-white data-[state=active]:shadow-sm"
+                  >
+                    <ActivityIcon className="h-4 w-4" />
+                    MongoDB Activity
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="patient-360-evolution"
+                    className="h-11 rounded-lg px-4 text-sm font-medium data-[state=active]:border-[#0f5f3d] data-[state=active]:bg-[#0f5f3d] data-[state=active]:text-white data-[state=active]:shadow-sm"
+                  >
+                    <GitBranch className="h-4 w-4" />
+                    Patient 360 Evolution
+                  </TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="data-model" className="pt-2">
+                  <DataModelToggleCard
+                    patientId={patientId}
+                    patient360={patient}
+                    rawFhirBundle={detailData.fhir_bundle ?? null}
+                    variant="embedded"
+                    jsonMaxHeightClassName="max-h-[52vh]"
+                  />
+                </TabsContent>
+
+                <TabsContent value="mongodb-activity" className="pt-2">
+                  <MongodbActivityPanel
+                    scope="patient"
+                    patientId={patientId}
+                    patient={patient}
+                    compact={false}
+                    title="MongoDB Activity"
+                  />
+                </TabsContent>
+
+                <TabsContent value="patient-360-evolution" className="pt-2">
+                  <Patient360EvolutionCard
+                    patientId={patientId}
+                    patient={patient}
+                    careGaps={care_gaps}
+                    alerts={active_alerts}
+                    workflowStatus={patient.interventions?.ked_workflow ?? null}
+                    lastRefreshedAt={vitals_summary?.refreshed_at ?? null}
+                  />
+                </TabsContent>
+              </Tabs>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* ---- Annotation dialog ---- */}
       <Dialog open={showAnnotationDialog} onOpenChange={setShowAnnotationDialog}>
