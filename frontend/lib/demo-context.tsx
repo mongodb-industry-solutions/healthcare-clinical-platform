@@ -16,7 +16,7 @@ export const PERSONAS: Persona[] = [
     name: "Frida",
     role: "physician",
     initials: "FR",
-    description: "Physician view",
+    description: "Care Coordinator view",
   },
   {
     name: "Diego",

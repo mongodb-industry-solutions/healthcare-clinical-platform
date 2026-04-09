@@ -7,10 +7,10 @@ import {
   Check,
   Circle,
   HeartPulse,
+  Hospital,
   Loader2,
   Minus,
   Plus,
-  Stethoscope,
   TriangleAlert,
   TrendingDown,
   User,
@@ -112,7 +112,7 @@ const ROLE_META: Record<
   { icon: React.ElementType; gradient: string; ringColor: string }
 > = {
   physician: {
-    icon: Stethoscope,
+    icon: Hospital,
     gradient: "from-primary/20 to-primary/5",
     ringColor: "ring-primary/40",
   },
