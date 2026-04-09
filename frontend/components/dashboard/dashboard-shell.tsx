@@ -5,20 +5,16 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
   Activity,
-  AlertTriangle,
   Bell,
   ChevronDown,
   ClipboardList,
-  GitCompare,
   Home,
-  Search,
-  Settings,
   Users,
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { useDemo } from "@/lib/demo-context"
-import { useSimulation, type AlertNotification } from "@/lib/simulation-context"
+import { useSimulation } from "@/lib/simulation-context"
 import { fetchAllPatients } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import {
@@ -29,62 +25,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Input } from "@/components/ui/input"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
-  SidebarHeader,
-  SidebarInset,
-  SidebarMenu,
-  SidebarMenuBadge,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarProvider,
-  SidebarTrigger,
-} from "@/components/ui/sidebar"
-import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 
-interface DashboardShellProps {
-  children: React.ReactNode
-  hideTopBar?: boolean
-}
-
 const navigation = [
-  {
-    title: "Overview",
-    items: [
-      { title: "Dashboard", href: "/", icon: Home },
-      { title: "Population View", href: "/patients", icon: Users },
-      { title: "Active Alerts", href: "/alerts", icon: AlertTriangle, badge: true },
-    ],
-  },
-  {
-    title: "Analysis",
-    items: [
-      { title: "Vitals Monitor", href: "/vitals", icon: Activity },
-      { title: "Care Gaps", href: "/care-gaps", icon: ClipboardList },
-      { title: "Trend Analysis", href: "/compare", icon: GitCompare },
-    ],
-  },
-  {
-    title: "System",
-    items: [
-      { title: "Settings", href: "/settings", icon: Settings },
-    ],
-  },
-]
-
-const hospitals = [
-  { id: "all", name: "All Hospitals" },
-  { id: "st_marys", name: "St. Mary's Medical Center" },
-  { id: "regional_general", name: "Regional General Hospital" },
-  { id: "community_health", name: "Community Health Partners" },
+  { title: "Dashboard", href: "/", icon: Home },
+  { title: "Population View", href: "/patients", icon: Users },
+  { title: "Care Gaps", href: "/care-gaps", icon: ClipboardList },
 ]
 
 const SEVERITY_DOT: Record<string, string> = {
@@ -104,11 +51,10 @@ function timeAgo(iso: string) {
   return `${Math.floor(mins / 60)}h ago`
 }
 
-export function DashboardShell({ children, hideTopBar = false }: DashboardShellProps) {
+export function DashboardShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const { persona, logout, dataVersion } = useDemo()
   const { recentAlerts, unreadAlertCount, markAlertsRead, isRunning } = useSimulation()
-  const [selectedHospital, setSelectedHospital] = React.useState(hospitals[0])
   const [totalAlerts, setTotalAlerts] = React.useState(0)
   const [notifOpen, setNotifOpen] = React.useState(false)
 
@@ -131,130 +77,45 @@ export function DashboardShell({ children, hideTopBar = false }: DashboardShellP
   const displayBadge = unreadAlertCount > 0 ? unreadAlertCount : totalAlerts
 
   return (
-    <SidebarProvider>
-      <Sidebar collapsible="icon">
-        <SidebarHeader className="border-b border-sidebar-border">
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton size="lg" asChild>
-                <Link href="/" className="flex items-center gap-2">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                    <Activity className="h-4 w-4" />
-                  </div>
-                  <div className="flex flex-col gap-0.5 leading-none">
-                    <span className="font-semibold">Leafy Health</span>
-                    <span className="text-xs text-muted-foreground">Clinical Platform</span>
-                  </div>
-                </Link>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
-        </SidebarHeader>
-
-        <SidebarContent>
-          {navigation.map((group) => (
-            <SidebarGroup key={group.title}>
-              <SidebarGroupLabel>{group.title}</SidebarGroupLabel>
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  {group.items.map((item) => (
-                    <SidebarMenuItem key={item.title}>
-                      <SidebarMenuButton
-                        asChild
-                        isActive={pathname === item.href}
-                        tooltip={item.title}
-                      >
-                        <Link href={item.href}>
-                          <item.icon className="h-4 w-4" />
-                          <span>{item.title}</span>
-                        </Link>
-                      </SidebarMenuButton>
-                      {item.badge && totalAlerts > 0 && (
-                        <SidebarMenuBadge>
-                          <Badge 
-                            variant="destructive" 
-                            className="h-5 min-w-5 rounded-full px-1.5 text-xs"
-                          >
-                            {totalAlerts}
-                          </Badge>
-                        </SidebarMenuBadge>
-                      )}
-                    </SidebarMenuItem>
-                  ))}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
-          ))}
-        </SidebarContent>
-
-        <SidebarFooter className="border-t border-sidebar-border">
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <SidebarMenuButton size="lg">
-                    <Avatar className="h-8 w-8">
-                      <AvatarFallback className="bg-primary/10 text-primary text-xs">
-                        {persona?.initials ?? "DR"}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="flex flex-col gap-0.5 leading-none">
-                      <span className="font-medium">{persona?.name ?? "Guest"}</span>
-                      <span className="text-xs text-muted-foreground capitalize">{persona?.description ?? "Not logged in"}</span>
-                    </div>
-                    <ChevronDown className="ml-auto h-4 w-4" />
-                  </SidebarMenuButton>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent side="top" align="start" className="w-56">
-                  <DropdownMenuLabel>My Account</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem>Profile</DropdownMenuItem>
-                  <DropdownMenuItem>Preferences</DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={logout}>Sign out</DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </SidebarMenuItem>
-          </SidebarMenu>
-        </SidebarFooter>
-      </Sidebar>
-
-      <SidebarInset>
-        {!hideTopBar && (
-          <header className="sticky top-0 z-10 flex h-14 items-center gap-4 border-b border-border bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-            <SidebarTrigger className="-ml-1" />
-            
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-8 gap-2">
-                  <span className="max-w-[150px] truncate">{selectedHospital.name}</span>
-                  <ChevronDown className="h-3 w-3 opacity-50" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start">
-                {hospitals.map((hospital) => (
-                  <DropdownMenuItem
-                    key={hospital.id}
-                    onClick={() => setSelectedHospital(hospital)}
-                    className={cn(
-                      selectedHospital.id === hospital.id && "bg-accent"
-                    )}
-                  >
-                    {hospital.name}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            <div className="relative ml-auto flex-1 max-w-md">
-              <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                type="search"
-                placeholder="Search patients, conditions, or notes..."
-                className="h-8 pl-8 bg-secondary/50"
-              />
+    <div className="flex min-h-screen flex-col">
+      <header className="sticky top-0 z-30 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <div className="flex h-14 items-center gap-4 px-4 lg:px-6">
+          {/* Left: Logo */}
+          <Link href="/" className="flex items-center gap-2 shrink-0">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+              <Activity className="h-4 w-4" />
             </div>
+            <div className="hidden sm:flex flex-col gap-0.5 leading-none">
+              <span className="font-semibold text-sm">Leafy Health</span>
+            </div>
+          </Link>
 
+          <div className="hidden sm:block h-6 w-px bg-border mx-1" />
+
+          {/* Center: Navigation */}
+          <nav className="flex items-center gap-1">
+            {navigation.map((item) => {
+              const isActive = pathname === item.href
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                    isActive
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                  )}
+                >
+                  <item.icon className="h-4 w-4" />
+                  <span className="hidden md:inline">{item.title}</span>
+                </Link>
+              )
+            })}
+          </nav>
+
+          {/* Right: Controls */}
+          <div className="ml-auto flex items-center gap-2">
             <Popover open={notifOpen} onOpenChange={(open) => {
               setNotifOpen(open)
               if (open && unreadAlertCount > 0) markAlertsRead()
@@ -281,11 +142,6 @@ export function DashboardShell({ children, hideTopBar = false }: DashboardShellP
                       </span>
                     )}
                   </div>
-                  {recentAlerts.length > 0 && (
-                    <Button variant="ghost" size="sm" className="h-6 text-xs text-muted-foreground" asChild>
-                      <Link href="/alerts">View all</Link>
-                    </Button>
-                  )}
                 </div>
                 <div className="max-h-80 overflow-y-auto">
                   {recentAlerts.length === 0 ? (
@@ -319,13 +175,35 @@ export function DashboardShell({ children, hideTopBar = false }: DashboardShellP
                 </div>
               </PopoverContent>
             </Popover>
-          </header>
-        )}
 
-        <main className="flex-1 overflow-auto">
-          {children}
-        </main>
-      </SidebarInset>
-    </SidebarProvider>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-8 gap-2 px-2">
+                  <Avatar className="h-7 w-7">
+                    <AvatarFallback className="bg-primary/10 text-primary text-xs">
+                      {persona?.initials ?? "DR"}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className="hidden lg:inline text-sm font-medium">{persona?.name ?? "Guest"}</span>
+                  <ChevronDown className="h-3 w-3 opacity-50 hidden lg:block" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel>My Account</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem>Profile</DropdownMenuItem>
+                <DropdownMenuItem>Preferences</DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={logout}>Sign out</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+      </header>
+
+      <main className="flex-1 overflow-auto">
+        {children}
+      </main>
+    </div>
   )
 }

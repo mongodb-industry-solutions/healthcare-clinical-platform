@@ -3,7 +3,7 @@ import { DashboardOverview } from "@/components/dashboard/dashboard-overview"
 
 export default function DashboardPage() {
   return (
-    <DashboardShell hideTopBar>
+    <DashboardShell>
       <DashboardOverview />
     </DashboardShell>
   )
