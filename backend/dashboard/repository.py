@@ -18,6 +18,7 @@ from db.mdb import MongoDBConnector
 PATIENT_360_COLLECTION = "patient_360"
 ALERTS_COLLECTION = "alerts"
 VITALS_COLLECTION = "synthetic_vitals"
+SYNTHETIC_PATIENTS_COLLECTION = "synthetic_patients"
 
 
 class DashboardRepository:
@@ -75,6 +76,12 @@ class DashboardRepository:
         """Fetch a single Patient 360 document."""
         return self._db.get_collection(PATIENT_360_COLLECTION).find_one(
             {"patient_id": patient_id}, {"_id": 0},
+        )
+
+    def get_patient_fhir_bundle(self, patient_id: str) -> Optional[dict[str, Any]]:
+        """Fetch the raw FHIR bundle wrapper document for a patient."""
+        return self._db.get_collection(SYNTHETIC_PATIENTS_COLLECTION).find_one(
+            {"meta.patient_id": patient_id}, {"_id": 0, "bundle": 1},
         )
 
     # ------------------------------------------------------------------

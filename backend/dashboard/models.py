@@ -67,6 +67,13 @@ class PatientDetailResponse(BaseModel):
     threshold_breaches: list[ThresholdBreachStatus] = []
 
 
+class PatientFhirBundleResponse(BaseModel):
+    """Raw FHIR bundle availability for a single patient."""
+    patient_id: str
+    available: bool = False
+    bundle: Optional[dict[str, Any]] = None
+
+
 # ---------------------------------------------------------------------------
 # Vitals with context
 # ---------------------------------------------------------------------------

@@ -25,6 +25,7 @@ from dashboard.models import (
     LongitudinalResponse,
     LongitudinalSnapshot,
     PatientDetailResponse,
+    PatientFhirBundleResponse,
     PatientListResponse,
     PatientSummary,
     RecommendedAction,
@@ -157,6 +158,26 @@ class DashboardService:
             risk_score=risk_score,
             time_since_last_alert=time_since,
             threshold_breaches=breaches,
+        )
+
+    def get_patient_fhir_bundle(
+        self, patient_id: str,
+    ) -> Optional[PatientFhirBundleResponse]:
+        """
+        Return raw FHIR bundle availability for the insights modal.
+        Returns None only when the patient itself does not exist.
+        """
+        patient_360 = self._repo.get_patient_360(patient_id)
+        if not patient_360:
+            return None
+
+        doc = self._repo.get_patient_fhir_bundle(patient_id)
+        bundle = doc.get("bundle") if doc else None
+
+        return PatientFhirBundleResponse(
+            patient_id=patient_id,
+            available=bundle is not None,
+            bundle=bundle,
         )
 
     @staticmethod

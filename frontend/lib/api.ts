@@ -99,7 +99,6 @@ export interface ThresholdBreach {
 
 export interface PatientDetailResponse {
   patient: Patient360
-  fhir_bundle?: unknown | null
   risk_score: number
   time_since_last_alert: string | null
   threshold_breaches: ThresholdBreach[]
@@ -109,6 +108,20 @@ export async function fetchPatientDetail(
   patientId: string,
 ): Promise<PatientDetailResponse> {
   return apiFetch<PatientDetailResponse>(`/dashboard/patients/${patientId}`)
+}
+
+export interface PatientFhirBundleResponse {
+  patient_id: string
+  available: boolean
+  bundle: unknown | null
+}
+
+export async function fetchPatientFhirBundle(
+  patientId: string,
+): Promise<PatientFhirBundleResponse> {
+  return apiFetch<PatientFhirBundleResponse>(
+    `/dashboard/patients/${patientId}/fhir-bundle`,
+  )
 }
 
 // ---------------------------------------------------------------------------

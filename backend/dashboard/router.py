@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from dashboard.models import (
     LongitudinalResponse,
     PatientDetailResponse,
+    PatientFhirBundleResponse,
     PatientListResponse,
     SearchResponse,
     VitalsWithContextResponse,
@@ -87,6 +88,26 @@ async def get_patient_detail(
     breach status.
     """
     result = svc.get_patient_detail(patient_id)
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Patient 360 for {patient_id!r} not found.",
+        )
+    return result
+
+
+@router.get(
+    "/patients/{patient_id}/fhir-bundle",
+    response_model=PatientFhirBundleResponse,
+)
+async def get_patient_fhir_bundle(
+    patient_id: str,
+    svc: DashboardService = Depends(get_dashboard_service),
+) -> PatientFhirBundleResponse:
+    """
+    Return raw FHIR bundle data for the insights modal on demand.
+    """
+    result = svc.get_patient_fhir_bundle(patient_id)
     if result is None:
         raise HTTPException(
             status_code=404,

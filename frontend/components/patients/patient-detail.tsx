@@ -24,8 +24,10 @@ import {
 
 import { cn } from "@/lib/utils"
 import {
+  fetchPatientFhirBundle,
   fetchPatientDetail,
   fetchPatientVitals,
+  type PatientFhirBundleResponse,
   type PatientDetailResponse,
   type VitalsWithContextResponse,
 } from "@/lib/api"
@@ -53,6 +55,12 @@ interface PatientDetailProps {
   patientId: string
 }
 
+type FhirBundleState = {
+  status: "idle" | "loading" | "loaded" | "error"
+  data: PatientFhirBundleResponse | null
+  error: string | null
+}
+
 export function PatientDetail({ patientId }: PatientDetailProps) {
   const [detailData, setDetailData] = React.useState<PatientDetailResponse | null>(null)
   const [vitalsData, setVitalsData] = React.useState<VitalsWithContextResponse | null>(null)
@@ -64,6 +72,11 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
   const [showAnnotationDialog, setShowAnnotationDialog] = React.useState(false)
   const [annotationLabel, setAnnotationLabel] = React.useState("")
   const [annotationType, setAnnotationType] = React.useState<ChartAnnotation["type"]>("note")
+  const [fhirBundleState, setFhirBundleState] = React.useState<FhirBundleState>({
+    status: "idle",
+    data: null,
+    error: null,
+  })
 
   const reloadPatientData = React.useCallback(() => {
     return Promise.all([
@@ -87,6 +100,42 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
     if (!detailData) return
     setAnnotations(buildAutoAnnotations(detailData.patient))
   }, [detailData])
+
+  React.useEffect(() => {
+    setFhirBundleState({
+      status: "idle",
+      data: null,
+      error: null,
+    })
+  }, [patientId])
+
+  const handleRequestFhirBundle = React.useCallback(() => {
+    if (fhirBundleState.status === "loading" || fhirBundleState.status === "loaded") {
+      return
+    }
+
+    setFhirBundleState({
+      status: "loading",
+      data: null,
+      error: null,
+    })
+
+    fetchPatientFhirBundle(patientId)
+      .then((response) => {
+        setFhirBundleState({
+          status: "loaded",
+          data: response,
+          error: null,
+        })
+      })
+      .catch((err: Error) => {
+        setFhirBundleState({
+          status: "error",
+          data: null,
+          error: err.message,
+        })
+      })
+  }, [fhirBundleState.status, patientId])
 
   if (loading) {
     return (
@@ -529,7 +578,10 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
                   <DataModelToggleCard
                     patientId={patientId}
                     patient360={patient}
-                    rawFhirBundle={detailData.fhir_bundle ?? null}
+                    rawFhirBundle={fhirBundleState.data?.bundle ?? null}
+                    fhirBundleStatus={fhirBundleState.status}
+                    fhirBundleError={fhirBundleState.error}
+                    onRequestFhirBundle={handleRequestFhirBundle}
                     variant="embedded"
                     jsonMaxHeightClassName="max-h-[52vh]"
                   />
