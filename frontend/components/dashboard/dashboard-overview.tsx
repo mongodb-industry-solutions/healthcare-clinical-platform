@@ -17,12 +17,26 @@ import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { JsonTreeView } from "@/components/mongodb/json-tree-view"
 import { useDemo } from "@/lib/demo-context"
-import { fetchAllPatients } from "@/lib/api"
+import {
+  fetchAllPatients,
+  fetchCDSCards,
+  fetchCDSProvenance,
+  type CDSCard,
+  type CDSProvenanceResponse,
+} from "@/lib/api"
 import { useSimulation, type AlertNotification, type LiveReading } from "@/lib/simulation-context"
 import {
-  getCareGapMeasureMeta,
-  getCareGapMeasureActionLabel,
   getCareGapMeasureDashboardLabel,
 } from "@/lib/care-gap-measures"
 import { type Alert as PatientAlert, type CareGap, type Patient360 } from "@/lib/mock-data"
@@ -76,7 +90,6 @@ type EscalationCandidate = {
   overdueGapCount: number
   recentAlertCount: number
   eventLabel: string | null
-  suggestedActions: string[]
   measurePressureScore: number
   livePressureScore: number
   contextPressureScore: number
@@ -280,6 +293,31 @@ function TopEscalationCard({
 }: {
   candidate: EscalationCandidate | null
 }) {
+  const [cdsCards, setCdsCards] = React.useState<CDSCard[]>([])
+  const [cdsLoading, setCdsLoading] = React.useState(false)
+  const [provenanceCard, setProvenanceCard] = React.useState<CDSCard | null>(null)
+  const [provenanceData, setProvenanceData] = React.useState<CDSProvenanceResponse | null>(null)
+  const [provenanceLoading, setProvenanceLoading] = React.useState(false)
+
+  const patientId = candidate?.patient.patient_id
+  React.useEffect(() => {
+    if (!patientId) return
+    setCdsLoading(true)
+    fetchCDSCards(patientId)
+      .then((res) => setCdsCards(res.cards))
+      .catch(() => setCdsCards([]))
+      .finally(() => setCdsLoading(false))
+  }, [patientId])
+
+  React.useEffect(() => {
+    if (!provenanceCard || !patientId) return
+    setProvenanceLoading(true)
+    fetchCDSProvenance(patientId, provenanceCard.uuid)
+      .then(setProvenanceData)
+      .catch(() => setProvenanceData(null))
+      .finally(() => setProvenanceLoading(false))
+  }, [provenanceCard, patientId])
+
   if (!candidate) {
     return (
       <Card>
@@ -294,14 +332,39 @@ function TopEscalationCard({
     )
   }
 
-  const { patient, liveReading, thresholdBreaches, liveSignals, score } = candidate
-  const topContext = getPatientContextSummary(patient)
+  const { patient, liveReading, liveSignals, score } = candidate
   const headerBadges = getCandidateCoreBadges(candidate)
   const priorityLabel = getPriorityReviewLabel(score)
-  const whySurfaced = getWhySurfacedReasons(candidate)
-  const currentSignals = getPrioritySignals(candidate)
-  const primaryConcern = getPrimaryConcern(candidate)
-  const interventionActions = deriveInterventionActions(candidate)
+
+  const primaryCard = cdsCards[0] ?? null
+
+  const vitalTriggers = cdsCards
+    .filter((c) => c.extensions?.card_type === "alert")
+    .flatMap((c) => c.extensions?.vital_triggers ?? [])
+    .filter((t, i, arr) => arr.findIndex((o) => o.vital === t.vital) === i)
+
+  const clinicalPressureSignals = vitalTriggers.length > 0
+    ? vitalTriggers.slice(0, 3).map((t) => ({
+        label: t.vital.replace(/_/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase()),
+        value: t.vital === "temperature" ? t.value.toFixed(1) : t.value.toFixed(0),
+        unit: t.unit,
+        status: `${capitalize(t.direction)} threshold`,
+        detail: `Threshold: ${t.threshold}`,
+        emphasis: true,
+      }))
+    : getPrioritySignals(candidate)
+
+  const drivers = cdsCards.map((card) => ({
+    card,
+    label: card.summary,
+    detail: card.detail,
+    contextBadges: card.extensions?.context_factors ?? [],
+    escalationReason: card.extensions?.escalation_reason,
+  }))
+
+  const steps = cdsCards.flatMap((card) =>
+    card.suggestions.map((s) => ({ ...s, parentCard: card })),
+  ).slice(0, 4)
 
   return (
     <Card className="border-border/60 bg-white shadow-sm">
@@ -332,27 +395,51 @@ function TopEscalationCard({
             </Link>
           </Button>
         </div>
-        <div className="rounded-lg border border-border/60 border-l-4 border-l-destructive bg-white p-3 shadow-sm">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Primary concern
-          </p>
-          <p className="mt-2 text-sm font-medium text-foreground">
-            {primaryConcern.title}
-          </p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {primaryConcern.summary}
-          </p>
-        </div>
+
+        {cdsLoading ? (
+          <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-white p-3 shadow-sm">
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            <span className="text-sm text-muted-foreground">Loading CDS guidance...</span>
+          </div>
+        ) : primaryCard ? (
+          <button
+            type="button"
+            onClick={() => setProvenanceCard(primaryCard)}
+            className="w-full rounded-lg border border-border/60 border-l-4 border-l-destructive bg-white p-3 text-left shadow-sm transition-colors hover:bg-accent/30"
+          >
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Primary concern
+            </p>
+            <p className="mt-2 text-sm font-medium text-foreground">
+              {primaryCard.summary}
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {primaryCard.detail}
+            </p>
+          </button>
+        ) : (
+          <div className="rounded-lg border border-border/60 bg-white p-3 shadow-sm">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Primary concern
+            </p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              No CDS cards available for this patient.
+            </p>
+          </div>
+        )}
       </CardHeader>
+
       <CardContent className="space-y-3">
         <div className="grid gap-3 lg:grid-cols-2">
           <div className="h-full rounded-lg border border-border/60 bg-white p-3 shadow-sm">
             <p className="text-sm font-medium">Clinical pressure</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              The key live measurements driving this review.
+              {vitalTriggers.length > 0
+                ? "Vital signs breaching personalized CDS thresholds."
+                : "The key live measurements driving this review."}
             </p>
             <div className="mt-3 space-y-2">
-              {currentSignals.map((signal) => (
+              {clinicalPressureSignals.map((signal) => (
                 <div
                   key={signal.label}
                   className="flex items-center justify-between gap-4 rounded-md border border-border/60 bg-white px-3 py-2.5"
@@ -386,52 +473,87 @@ function TopEscalationCard({
 
           <div className="h-full rounded-lg border border-border/60 bg-white p-3 shadow-sm">
             <p className="text-sm font-medium">Escalation Drivers</p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {liveSignals.slice(0, 3).map((signal) => (
-                <Badge
-                  key={signal}
-                  variant="secondary"
-                  className="border border-[#CFF5DD] bg-[#F2FFF8] text-[#0F5A3C]"
-                >
-                  {signal}
-                </Badge>
-              ))}
-              {liveSignals.length === 0 && (
-                <Badge
-                  variant="secondary"
-                  className="border border-[#CFF5DD] bg-[#F2FFF8] text-[#0F5A3C]"
-                >
-                  Context-aware monitoring remains active
-                </Badge>
-              )}
-            </div>
-            <div className="mt-3 space-y-2 text-sm text-foreground">
-              {whySurfaced.map((reason, index) => (
-                <div key={reason} className="rounded-md border border-border/60 bg-white px-3 py-2">
-                  <span className="mr-2 text-xs font-medium text-muted-foreground">{index + 1}.</span>
-                  {reason}
-                </div>
-              ))}
-              <div className="rounded-md border border-border/60 bg-white px-3 py-2">
-                <span className="font-medium text-foreground">Context:</span>{" "}
-                <span className="text-foreground">{topContext}</span>
+            {drivers.length > 0 ? (
+              <div className="mt-3 space-y-2 text-sm text-foreground">
+                {drivers.map((driver, index) => (
+                  <button
+                    key={driver.card.uuid}
+                    type="button"
+                    onClick={() => setProvenanceCard(driver.card)}
+                    className="w-full rounded-md border border-border/60 bg-white px-3 py-2 text-left transition-colors hover:bg-accent/30"
+                  >
+                    <div className="flex items-start gap-2">
+                      <span className="mt-0.5 text-xs font-medium text-muted-foreground">{index + 1}.</span>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium">{driver.label}</p>
+                        {driver.escalationReason && (
+                          <p className="mt-0.5 text-xs text-muted-foreground">{driver.escalationReason}</p>
+                        )}
+                        {driver.contextBadges.length > 0 && (
+                          <div className="mt-1.5 flex flex-wrap gap-1">
+                            {driver.contextBadges.map((badge) => (
+                              <Badge
+                                key={badge}
+                                variant="secondary"
+                                className="border border-[#CFF5DD] bg-[#F2FFF8] text-[#0F5A3C] text-[10px]"
+                              >
+                                {badge}
+                              </Badge>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                ))}
               </div>
-            </div>
+            ) : (
+              <>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {liveSignals.slice(0, 3).map((signal) => (
+                    <Badge
+                      key={signal}
+                      variant="secondary"
+                      className="border border-[#CFF5DD] bg-[#F2FFF8] text-[#0F5A3C]"
+                    >
+                      {signal}
+                    </Badge>
+                  ))}
+                  {liveSignals.length === 0 && (
+                    <Badge
+                      variant="secondary"
+                      className="border border-[#CFF5DD] bg-[#F2FFF8] text-[#0F5A3C]"
+                    >
+                      Context-aware monitoring remains active
+                    </Badge>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
 
         <div className="rounded-lg border border-border/60 bg-white p-3 shadow-sm">
           <p className="text-sm font-medium">Recommended next steps</p>
           <div className="mt-2.5 space-y-2">
-            {interventionActions.slice(0, 2).map((action, index) => (
-              <div
-                key={action}
-                className="flex gap-3 rounded-md border border-border/60 bg-white px-3 py-2 text-sm"
-              >
-                <span className="text-xs font-medium text-muted-foreground">{index + 1}.</span>
-                <span>{action}</span>
-              </div>
-            ))}
+            {steps.length > 0
+              ? steps.slice(0, 2).map((step, index) => (
+                  <button
+                    key={step.uuid}
+                    type="button"
+                    onClick={() => setProvenanceCard(step.parentCard)}
+                    className="flex w-full gap-3 rounded-md border border-border/60 bg-white px-3 py-2 text-left text-sm transition-colors hover:bg-accent/30"
+                  >
+                    <span className="text-xs font-medium text-muted-foreground">{index + 1}.</span>
+                    <span>{step.label}</span>
+                  </button>
+                ))
+              : (
+                <div className="flex gap-3 rounded-md border border-border/60 bg-white px-3 py-2 text-sm">
+                  <span className="text-xs font-medium text-muted-foreground">1.</span>
+                  <span>Open the patient chart and review recent trajectory</span>
+                </div>
+              )}
           </div>
           <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
             <span>
@@ -441,6 +563,88 @@ function TopEscalationCard({
           </div>
         </div>
       </CardContent>
+
+      <Dialog open={provenanceCard !== null} onOpenChange={(open) => { if (!open) setProvenanceCard(null) }}>
+        <DialogContent className="sm:max-w-4xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex flex-wrap items-center gap-2">
+              {provenanceCard?.summary}
+              {provenanceCard && (
+                <Badge
+                  variant={
+                    provenanceCard.indicator === "critical"
+                      ? "destructive"
+                      : provenanceCard.indicator === "warning"
+                        ? "secondary"
+                        : "outline"
+                  }
+                >
+                  {provenanceCard.indicator}
+                </Badge>
+              )}
+            </DialogTitle>
+            <DialogDescription className="flex flex-wrap items-center gap-2">
+              <span>CDS Hooks patient-view</span>
+              <span className="text-muted-foreground">•</span>
+              <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
+                POST /hooks/cds-services/patient-view
+              </code>
+            </DialogDescription>
+          </DialogHeader>
+
+          {provenanceLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : provenanceData ? (
+            <Tabs defaultValue="card">
+              <TabsList className="w-full">
+                <TabsTrigger value="card" className="flex-1">CDS Card</TabsTrigger>
+                <TabsTrigger value="rule" className="flex-1">CDS Rule</TabsTrigger>
+                <TabsTrigger value="source" className="flex-1">Source Document</TabsTrigger>
+              </TabsList>
+              <TabsContent value="card">
+                <JsonTreeView value={provenanceData.card} collapsed={2} />
+              </TabsContent>
+              <TabsContent value="rule">
+                {provenanceData.source_rule ? (
+                  <JsonTreeView value={provenanceData.source_rule} collapsed={2} />
+                ) : (
+                  <p className="py-4 text-sm text-muted-foreground">
+                    No CDS rule is directly associated with this card.
+                  </p>
+                )}
+              </TabsContent>
+              <TabsContent value="source">
+                {provenanceData.alert_document ? (
+                  <JsonTreeView value={provenanceData.alert_document} collapsed={2} />
+                ) : provenanceData.care_gap_document ? (
+                  <JsonTreeView value={provenanceData.care_gap_document} collapsed={2} />
+                ) : (
+                  <p className="py-4 text-sm text-muted-foreground">
+                    No source document available.
+                  </p>
+                )}
+              </TabsContent>
+            </Tabs>
+          ) : (
+            <p className="py-4 text-sm text-muted-foreground">
+              Unable to load provenance data.
+            </p>
+          )}
+
+          <DialogFooter className="flex-col items-start gap-1 sm:flex-col">
+            <p className="text-xs text-muted-foreground">
+              Data source: {provenanceData?.data_source ?? "MongoDB patient_360 + cds_rules + alerts collections"}
+            </p>
+            {provenanceData?.generated_at && (
+              <p className="text-xs text-muted-foreground">
+                Generated: {new Date(provenanceData.generated_at).toLocaleString()}
+              </p>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   )
 }
@@ -717,7 +921,6 @@ function buildEscalationCandidate(
     overdueGapCount,
     recentAlertCount: recentSessionAlerts.length,
     eventLabel: liveReading?.event ? capitalize(liveReading.event) : null,
-    suggestedActions: deriveSuggestedActions(primaryAlert, liveReading, thresholdBreaches),
     measurePressureScore,
     livePressureScore,
     contextPressureScore,
@@ -917,149 +1120,6 @@ function hasSeriousActiveAlert(patient: Patient360) {
   return patient.active_alerts.some((alert) => alert.severity === "critical" || alert.severity === "high")
 }
 
-function deriveSuggestedActions(
-  primaryAlert: PatientAlert | null,
-  liveReading: LiveReading | undefined,
-  thresholdBreaches: ThresholdBreach[],
-) {
-  const actions = new Set<string>(primaryAlert?.suggested_actions.slice(0, 3) ?? [])
-
-  if (liveReading?.event === "hypoglycemia") {
-    actions.add("Check point-of-care glucose and review insulin timing")
-    actions.add("Confirm the patient is alert, oriented, and able to take oral carbohydrates")
-  }
-
-  if (liveReading?.event === "sepsis") {
-    actions.add("Evaluate for infection source and obtain cultures")
-    actions.add("Escalate to the attending team for sepsis workup")
-  }
-
-  thresholdBreaches.forEach((breach) => {
-    if (breach.vital === "spo2") actions.add("Assess oxygenation and respiratory status")
-    if (breach.vital === "heart_rate") actions.add("Review hemodynamics and medication effect")
-    if (breach.vital === "respiratory_rate") actions.add("Check for metabolic or pulmonary decompensation")
-  })
-
-  if (actions.size === 0) {
-    actions.add("Open the patient chart and review recent trajectory")
-    actions.add("Confirm whether the live pattern is sustained across the last readings")
-  }
-
-  return Array.from(actions).slice(0, 4)
-}
-
-function getPrimaryConcern(candidate: EscalationCandidate) {
-  const topGap = candidate.topGap
-  const measureMeta = topGap ? getCareGapMeasureMeta(topGap.hedis_measure) : null
-  const urgency = getGapUrgencyDriver(candidate)
-  const contextSummary = getGapContextSummary(candidate.patient, topGap?.hedis_measure)
-
-  if (topGap) {
-    const title = `${getCareGapMeasureDashboardLabel(topGap.hedis_measure)} requires intervention`
-    const gapName = measureMeta?.name ?? topGap.measure_name
-    const contextSentence = contextSummary
-      ? ` ${contextSummary}`
-      : " This case has enough context to justify immediate outreach."
-
-    return {
-      title,
-      summary: `${gapName} remains open. ${urgency}${contextSentence}`,
-    }
-  }
-
-  return {
-    title: candidate.primaryAlert?.title ?? "Rapid review recommended",
-    summary:
-      candidate.primaryAlert?.reasoning ??
-      "Live vitals and patient context indicate this case should be reviewed before the rest of the queue.",
-  }
-}
-
-function deriveInterventionActions(candidate: EscalationCandidate) {
-  const topGap = candidate.topGap
-  const firstBreach = candidate.thresholdBreaches[0]
-  const actions: string[] = []
-
-  if (topGap) {
-    actions.push(getCareGapMeasureActionLabel(topGap.hedis_measure))
-  }
-
-  if (candidate.eventLabel === "Hypoglycemia") {
-    actions.push("Initiate same-day outreach and confirm glucose review plan")
-  } else if (candidate.eventLabel === "Sepsis") {
-    actions.push("Route to clinician review immediately for infection assessment")
-  } else if (firstBreach) {
-    actions.push(
-      `Route to clinician review because ${VITAL_CONFIG[firstBreach.vital].label} is ${firstBreach.direction} the personalized threshold`,
-    )
-  }
-
-  if (actions.length === 0 && topGap) {
-    getMeasureSpecificInterventions(candidate, topGap.hedis_measure).forEach((action) => {
-      if (!actions.includes(action)) {
-        actions.push(action)
-      }
-    })
-  }
-
-  if (actions.length === 0) {
-    actions.push("Open the patient chart and confirm the next gap-closure action")
-  }
-
-  return actions.slice(0, 2)
-}
-
-function getMeasureSpecificInterventions(candidate: EscalationCandidate, measure: string) {
-  const { patient } = candidate
-
-  if (measure === "CDC-HBA") {
-    return [
-      patient.flags.has_insulin
-        ? "Confirm glycemic follow-up timing if glucose instability continues"
-        : "Confirm diabetes follow-up is active before routing outreach",
-    ]
-  }
-
-  if (measure === "KED") {
-    return [
-      patient.flags.has_ckd
-        ? "Prioritize eGFR and uACR completion"
-        : "Confirm kidney monitoring is not already pending",
-    ]
-  }
-
-  if (measure === "CBP") {
-    return [
-      "Confirm blood pressure follow-up and control plan",
-    ]
-  }
-
-  if (measure === "SPD") {
-    return [
-      "Review statin therapy gap and route medication follow-up",
-    ]
-  }
-
-  if (measure === "EED") {
-    return [
-      "Initiate retinal exam outreach and close the referral loop",
-    ]
-  }
-
-  return []
-}
-
-function getPatientContextSummary(patient: Patient360) {
-  const contextBits = [
-    patient.flags.has_beta_blocker ? "beta-blocker therapy" : null,
-    patient.flags.has_insulin ? "insulin-treated diabetes" : null,
-    patient.flags.has_ckd ? "CKD context" : null,
-    patient.conditions[0]?.display ?? null,
-  ].filter(Boolean)
-
-  return contextBits.slice(0, 3).join(", ")
-}
-
 function getPatientContextBadges(patient: Patient360) {
   const badges = [
     patient.flags.has_insulin ? "Insulin" : null,
@@ -1149,81 +1209,6 @@ function getTopRelevantGap(patient: Patient360) {
     if (overdueDiff !== 0) return overdueDiff
     return (priorityRank[left.priority] ?? 4) - (priorityRank[right.priority] ?? 4)
   })[0] ?? null
-}
-
-function getGapUrgencyDriver(candidate: EscalationCandidate) {
-  const firstBreach = candidate.thresholdBreaches[0]
-
-  if (candidate.eventLabel === "Sepsis") {
-    return "A sepsis-like pattern is increasing the urgency of intervention."
-  }
-
-  if (candidate.eventLabel === "Hypoglycemia") {
-    return "A hypoglycemia-like pattern is making routine follow-up too slow."
-  }
-
-  if (firstBreach) {
-    return `${VITAL_CONFIG[firstBreach.vital].label} is ${firstBreach.direction} the personalized threshold.`
-  }
-
-  if (candidate.primaryAlert?.title) {
-    return `${candidate.primaryAlert.title} is raising intervention urgency.`
-  }
-
-  return "Current patient context is raising intervention urgency."
-}
-
-function getGapContextSummary(patient: Patient360, measure?: string) {
-  if (!measure) {
-    return `${getPatientContextSummary(patient)}`
-  }
-
-  if (measure === "CDC-HBA") {
-    return patient.flags.has_insulin
-      ? "Insulin-treated diabetes and current instability increase the value of timely glycemic follow-up."
-      : "Diabetes context keeps glycemic follow-up tied to quality performance."
-  }
-
-  if (measure === "KED") {
-    return patient.flags.has_ckd
-      ? "CKD context means delayed kidney monitoring may affect both outcomes and HEDIS performance."
-      : "Renal follow-up is still important for diabetic quality management."
-  }
-
-  if (measure === "CBP") {
-    return "Hypertension and diabetes context increase the value of closing blood pressure follow-up promptly."
-  }
-
-  if (measure === "SPD") {
-    return "Medication optimization affects both cardiovascular prevention and quality performance."
-  }
-
-  if (measure === "EED") {
-    return "Diabetes context keeps retinal screening important for preventive quality performance."
-  }
-
-  return `${getPatientContextSummary(patient)}`
-}
-
-function getWhySurfacedReasons(candidate: EscalationCandidate) {
-  const reasons: string[] = []
-  const topGap = candidate.topGap
-
-  if (topGap) {
-    reasons.push(
-      `${getCareGapMeasureDashboardLabel(topGap.hedis_measure)} is still open and ${topGap.days_overdue} day${topGap.days_overdue === 1 ? "" : "s"} overdue.`,
-    )
-  }
-
-  reasons.push(
-    `${getCandidateContextAmplifier(candidate)} is now paired with ${lowercaseFirst(getCandidateClinicalAmplifier(candidate))}.`,
-  )
-
-  if (reasons.length === 0) {
-    reasons.push("Combined live drift and clinical context are keeping this patient at the top of the board.")
-  }
-
-  return reasons.slice(0, 2)
 }
 
 function getCandidateContextAmplifier(candidate: EscalationCandidate) {

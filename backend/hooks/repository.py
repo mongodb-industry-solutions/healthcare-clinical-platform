@@ -15,6 +15,7 @@ from db.mdb import MongoDBConnector
 
 PATIENT_360_COLLECTION = "patient_360"
 ALERTS_COLLECTION = "alerts"
+CDS_RULES_COLLECTION = "cds_rules"
 
 
 class HooksRepository:
@@ -36,4 +37,28 @@ class HooksRepository:
                 {"_id": 0},
             )
             .sort("created_at", DESCENDING)
+        )
+
+    def get_all_rules(self) -> list[dict[str, Any]]:
+        """Fetch every CDS rule definition."""
+        return list(self._db.get_collection(CDS_RULES_COLLECTION).find({}, {"_id": 0}))
+
+    def get_rule_by_id(self, rule_id: str) -> Optional[dict[str, Any]]:
+        """Fetch a single CDS rule by its rule_id."""
+        return self._db.get_collection(CDS_RULES_COLLECTION).find_one(
+            {"rule_id": rule_id}, {"_id": 0},
+        )
+
+    def get_alert_by_id(self, alert_id: str) -> Optional[dict[str, Any]]:
+        """Fetch a single alert document by its alert_id."""
+        return self._db.get_collection(ALERTS_COLLECTION).find_one(
+            {"alert_id": alert_id}, {"_id": 0},
+        )
+
+    def get_rules_by_hedis_measure(self, measure_code: str) -> list[dict[str, Any]]:
+        """Fetch CDS rules whose alert_template targets a given HEDIS measure."""
+        return list(
+            self._db.get_collection(CDS_RULES_COLLECTION).find(
+                {"alert_template.hedis_measure": measure_code}, {"_id": 0},
+            )
         )

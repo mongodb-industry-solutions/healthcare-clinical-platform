@@ -509,6 +509,77 @@ export async function generateKedFollowUpSummary(
 }
 
 // ---------------------------------------------------------------------------
+// CDS Hooks
+// ---------------------------------------------------------------------------
+
+export type CDSVitalTrigger = {
+  vital: string
+  value: number
+  threshold: number
+  direction: "above" | "below"
+  unit: string
+  source_rule?: string | null
+}
+
+export type CDSCardExtensions = {
+  card_type: "alert" | "care_gap"
+  measure_code?: string
+  rule_id?: string
+  rule_name?: string
+  days_overdue?: number
+  priority?: string
+  context_factors?: string[]
+  vital_triggers?: CDSVitalTrigger[]
+  escalation_reason?: string
+  ranking_weight?: number
+}
+
+export type CDSSuggestion = { label: string; uuid: string }
+
+export type CDSCard = {
+  uuid: string
+  summary: string
+  detail: string
+  indicator: "info" | "warning" | "critical"
+  source: { label: string; url?: string }
+  suggestions: CDSSuggestion[]
+  links: { label: string; url: string; type: string }[]
+  extensions?: CDSCardExtensions
+}
+
+export type CDSHooksResponse = { cards: CDSCard[] }
+
+export type CDSProvenanceResponse = {
+  card: CDSCard
+  source_rule: Record<string, unknown> | null
+  care_gap_document: Record<string, unknown> | null
+  alert_document: Record<string, unknown> | null
+  patient_context: Record<string, unknown>
+  generated_at: string
+  data_source: string
+}
+
+export async function fetchCDSCards(patientId: string): Promise<CDSHooksResponse> {
+  return apiFetch<CDSHooksResponse>("/hooks/cds-services/patient-view", {
+    method: "POST",
+    body: JSON.stringify({
+      hookInstance: crypto.randomUUID(),
+      hook: "patient-view",
+      context: { patientId, userId: "Practitioner/care-coordinator" },
+    }),
+  })
+}
+
+export async function fetchCDSProvenance(
+  patientId: string,
+  cardUuid: string,
+): Promise<CDSProvenanceResponse> {
+  return apiFetch<CDSProvenanceResponse>(
+    `/hooks/cds-provenance/${patientId}/${cardUuid}`,
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Simulation worker
 // ---------------------------------------------------------------------------
 
