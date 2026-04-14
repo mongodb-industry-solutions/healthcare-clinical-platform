@@ -7,7 +7,6 @@ import {
   ClipboardList,
   HeartPulse,
   Loader2,
-  Radio,
   TrendingDown,
   TrendingUp,
   Users,
@@ -25,6 +24,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { JsonTreeView } from "@/components/mongodb/json-tree-view"
 import { useDemo } from "@/lib/demo-context"
@@ -42,7 +42,6 @@ import {
 import { type Alert as PatientAlert, type CareGap, type Patient360 } from "@/lib/mock-data"
 import { cn } from "@/lib/utils"
 
-const LIVE_WINDOW_MS = 60 * 1000
 const ALERT_WINDOW_MS = 5 * 60 * 1000
 
 const VITAL_CONFIG = {
@@ -70,13 +69,6 @@ type ThresholdBreach = {
   direction: "above" | "below"
   threshold: number
   current: number
-}
-
-type LiveMetric = {
-  label: string
-  value: string
-  detail: string
-  variant?: "default" | "critical" | "warning"
 }
 
 type EscalationCandidate = {
@@ -110,6 +102,15 @@ type CardTrend = {
   format?: "delta" | "plain"
 }
 
+type QueueSummary = {
+  contextElevatedGaps: number
+  escalatedCount: number
+  measureCount: number
+  queueCount: number
+  nextLabel: string
+  nextReason: string
+}
+
 export function DashboardOverview() {
   const { dataVersion } = useDemo()
   const { isRunning, liveReadings, recentAlerts } = useSimulation()
@@ -141,48 +142,66 @@ export function DashboardOverview() {
     () => buildClinicalSummaryMetrics(patients, liveReadings, recentAlerts, rankedEscalations),
     [patients, liveReadings, recentAlerts, rankedEscalations],
   )
-  const liveMetrics = React.useMemo(
-    () =>
-      buildLiveMetrics({
-        isRunning,
-        clinicalSummary,
-        liveReadings: liveReadingsList,
-        recentAlerts,
-      }),
-    [isRunning, clinicalSummary, liveReadingsList, recentAlerts],
-  )
   const [selectedPriorityPatientId, setSelectedPriorityPatientId] = React.useState<string | null>(null)
+  const [isPrioritySheetOpen, setIsPrioritySheetOpen] = React.useState(false)
 
   React.useEffect(() => {
-    if (rankedEscalations.length === 0) {
-      setSelectedPriorityPatientId(null)
+    if (!selectedPriorityPatientId) {
+      if (rankedEscalations.length === 0 && isPrioritySheetOpen) {
+        setIsPrioritySheetOpen(false)
+      }
       return
     }
 
-    const selectedCandidate = selectedPriorityPatientId
-      ? rankedEscalations.find((candidate) => candidate.patient.patient_id === selectedPriorityPatientId) ?? null
-      : null
+    const selectedStillExists = rankedEscalations.some(
+      (candidate) => candidate.patient.patient_id === selectedPriorityPatientId,
+    )
 
-    if (!selectedCandidate) {
-      setSelectedPriorityPatientId(rankedEscalations[0].patient.patient_id)
+    if (!selectedStillExists) {
+      setSelectedPriorityPatientId(null)
+      setIsPrioritySheetOpen(false)
     }
-  }, [rankedEscalations, selectedPriorityPatientId])
+  }, [isPrioritySheetOpen, rankedEscalations, selectedPriorityPatientId])
 
-  const topEscalation = React.useMemo(
+  const queueCandidates = rankedEscalations
+
+  const selectedCandidate = React.useMemo(
     () =>
       selectedPriorityPatientId
         ? rankedEscalations.find((candidate) => candidate.patient.patient_id === selectedPriorityPatientId) ?? null
-        : rankedEscalations[0] ?? null,
+        : null,
     [rankedEscalations, selectedPriorityPatientId],
   )
 
-  const reviewQueue = React.useMemo(() => {
-    if (!topEscalation) return []
-
-    return rankedEscalations.filter(
-      (candidate) => candidate.patient.patient_id !== topEscalation.patient.patient_id,
+  const queueSummary = React.useMemo<QueueSummary>(() => {
+    const nextCandidate = queueCandidates[0] ?? null
+    const distinctMeasures = new Set(
+      queueCandidates
+        .map((candidate) => candidate.topGap?.hedis_measure)
+        .filter((measure): measure is string => Boolean(measure)),
     )
-  }, [rankedEscalations, topEscalation])
+
+    return {
+      contextElevatedGaps: clinicalSummary.contextElevatedGapCount,
+      escalatedCount: queueCandidates.filter((candidate) => isImmediateReviewCandidate(candidate)).length,
+      measureCount: distinctMeasures.size,
+      queueCount: queueCandidates.length,
+      nextLabel: nextCandidate ? nextCandidate.patient.demographics.name : "Queue is clear",
+      nextReason: nextCandidate
+        ? getCandidateReasonLine(nextCandidate)
+        : "No active intervention cases are waiting for review.",
+    }
+  }, [clinicalSummary.contextElevatedGapCount, queueCandidates])
+
+  const openPriorityIntervention = React.useCallback((patientId: string) => {
+    setSelectedPriorityPatientId(patientId)
+    setIsPrioritySheetOpen(true)
+  }, [])
+
+  const closePriorityIntervention = React.useCallback(() => {
+    setIsPrioritySheetOpen(false)
+    setSelectedPriorityPatientId(null)
+  }, [])
 
   if (loading) {
     return (
@@ -211,87 +230,47 @@ export function DashboardOverview() {
         </p>
       </div>
 
-      <LiveCommandBar isRunning={isRunning} metrics={liveMetrics} />
-
-      <div className="grid items-start gap-5 xl:grid-cols-[1.35fr_0.95fr]">
-        <TopEscalationCard candidate={topEscalation} />
+      <div className="mx-auto w-full max-w-[1400px]">
         <ReviewQueueCard
-          candidates={reviewQueue}
-          onSelectPatient={(patientId) => setSelectedPriorityPatientId(patientId)}
+          candidates={queueCandidates}
+          selectedPatientId={isPrioritySheetOpen ? selectedPriorityPatientId : null}
+          summary={queueSummary}
+          onOpenPatient={openPriorityIntervention}
         />
       </div>
-    </div>
-  )
-}
 
-function LiveCommandBar({
-  isRunning,
-  metrics,
-}: {
-  isRunning: boolean
-  metrics: LiveMetric[]
-}) {
-  return (
-    <Card className="border-border/60 bg-white shadow-sm">
-      <CardContent className="px-4 py-1">
-        <div className="flex flex-col gap-2.5 xl:flex-row xl:items-center xl:justify-between">
-          <div className="flex min-w-[208px] items-center gap-3">
-            <div className="flex items-center gap-2">
-              <Radio className="h-3.5 w-3.5 text-primary" />
-              <span className="text-sm font-medium">Intervention Status</span>
+      <Sheet
+        open={isPrioritySheetOpen && selectedCandidate !== null}
+        onOpenChange={(open) => {
+          if (!open) closePriorityIntervention()
+        }}
+      >
+        <SheetContent
+          side="right"
+          className="w-full overflow-y-auto border-l border-[#D6E8DD] bg-[#F4FAF6] p-0 sm:max-w-4xl"
+        >
+          <SheetTitle className="sr-only">
+            {selectedCandidate
+              ? `Priority Intervention for ${selectedCandidate.patient.demographics.name}`
+              : "Priority Intervention"}
+          </SheetTitle>
+          {selectedCandidate ? (
+            <div className="min-h-full bg-[radial-gradient(circle_at_top,_rgba(15,95,61,0.08),_transparent_38%)]">
+              <TopEscalationCard candidate={selectedCandidate} presentation="sheet" />
             </div>
-            <Badge
-              variant={isRunning ? "default" : "secondary"}
-              className={cn(
-                "rounded-full px-2 py-0.5 text-[11px] font-medium",
-                isRunning && "bg-[#00ED64] text-black hover:bg-[#00ED64]",
-              )}
-            >
-              {isRunning ? "Live" : "Standing by"}
-            </Badge>
-          </div>
-
-          <div className="grid gap-2 md:grid-cols-3 xl:flex-1 xl:grid-cols-[1.35fr_1fr_1fr] xl:gap-0">
-            {metrics.map((metric, index) => (
-              <div
-                key={metric.label}
-                className={cn(
-                  "flex min-h-[66px] flex-col justify-between rounded-md border border-border/50 px-3 py-2 xl:min-h-[62px] xl:rounded-none xl:border-y-0 xl:border-r-0 xl:border-l-0",
-                  index === 0 &&
-                    "border-[#CFF5DD] bg-[#F6FFFA] xl:border-l xl:border-[#CFF5DD] xl:bg-[#F6FFFA]",
-                  index > 0 && "xl:border-l xl:border-border/60",
-                )}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                    {metric.label}
-                  </p>
-                  <p
-                    className={cn(
-                      index === 0 ? "text-3xl font-semibold leading-none" : "text-2xl font-semibold leading-none",
-                      metric.variant === "critical" && "text-destructive",
-                      metric.variant === "warning" && "text-warning",
-                    )}
-                  >
-                    {metric.value}
-                  </p>
-                </div>
-                <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-                  {metric.detail}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+          ) : null}
+        </SheetContent>
+      </Sheet>
+    </div>
   )
 }
 
 function TopEscalationCard({
   candidate,
+  presentation = "card",
 }: {
   candidate: EscalationCandidate | null
+  presentation?: "card" | "sheet"
 }) {
   const [cdsCards, setCdsCards] = React.useState<CDSCard[]>([])
   const [cdsLoading, setCdsLoading] = React.useState(false)
@@ -320,7 +299,7 @@ function TopEscalationCard({
 
   if (!candidate) {
     return (
-      <Card>
+      <Card className={cn(presentation === "sheet" && "rounded-none border-0 shadow-none") }>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <HeartPulse className="h-4 w-4 text-primary" />
@@ -334,7 +313,8 @@ function TopEscalationCard({
 
   const { patient, liveReading, liveSignals, score } = candidate
   const headerBadges = getCandidateCoreBadges(candidate)
-  const priorityLabel = getPriorityReviewLabel(score)
+  const priorityLabel = getQueueUrgencyLabel(candidate)
+  const primaryMeasureBadge = candidate.topGap?.hedis_measure ?? null
 
   const primaryCard = cdsCards[0] ?? null
 
@@ -367,13 +347,28 @@ function TopEscalationCard({
   ).slice(0, 4)
 
   return (
-    <Card className="border-border/60 bg-white shadow-sm">
+    <Card
+      className={cn(
+        "border-border/60 bg-white shadow-sm",
+        presentation === "sheet" && "rounded-none border-0 bg-transparent shadow-none",
+      )}
+    >
       <CardHeader className="gap-2 pb-4">
-        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+        <div
+          className={cn(
+            "flex flex-col gap-2 md:flex-row md:items-start md:justify-between",
+            presentation === "sheet" && "pr-14 sm:pr-16",
+          )}
+        >
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
               <CardTitle className="text-base">Priority Intervention</CardTitle>
-              <Badge variant="destructive">{priorityLabel}</Badge>
+              <Badge variant={getQueueUrgencyBadgeVariant(candidate)}>{priorityLabel}</Badge>
+              {primaryMeasureBadge && (
+                <Badge variant="secondary" className="bg-[#EDF4EF] text-[#234734]">
+                  {primaryMeasureBadge}
+                </Badge>
+              )}
               {headerBadges.map((badge) => (
                 <Badge key={badge} variant="secondary" className="border-transparent bg-muted/50 text-foreground">
                   {badge}
@@ -388,7 +383,7 @@ function TopEscalationCard({
               </p>
             </div>
           </div>
-          <Button asChild>
+          <Button asChild className={cn(presentation === "sheet" && "mr-2 sm:mr-4")}>
             <Link href={`/patients/${patient.patient_id}`} className="gap-1">
               Open patient chart
               <ArrowRight className="h-3.5 w-3.5" />
@@ -651,71 +646,196 @@ function TopEscalationCard({
 
 function ReviewQueueCard({
   candidates,
-  onSelectPatient,
+  selectedPatientId,
+  summary,
+  onOpenPatient,
 }: {
   candidates: EscalationCandidate[]
-  onSelectPatient: (patientId: string) => void
+  selectedPatientId: string | null
+  summary: QueueSummary
+  onOpenPatient: (patientId: string) => void
 }) {
   const careGapsHandoff = getCareGapsHandoff(candidates)
 
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <HeartPulse className="h-4 w-4 text-primary" />
-          Intervention Queue
-        </CardTitle>
-        <CardDescription className="text-xs leading-5">
-          The next care-gap interventions to work after the current case.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-1.5">
-        {candidates.length === 0 ? (
-          <p className="py-4 text-sm text-muted-foreground">No additional cases are waiting in the queue.</p>
-        ) : (
-          candidates.slice(0, 3).map((candidate, index) => (
-            <button
-              key={candidate.patient.patient_id}
-              type="button"
-              onClick={() => onSelectPatient(candidate.patient.patient_id)}
-              className="w-full rounded-lg border border-border/70 bg-background/80 p-3 text-left transition-colors hover:bg-accent/40"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                    Next #{index + 1}
-                  </p>
-                  <div className="mt-1 flex flex-wrap items-center gap-2">
-                    <p className="font-medium">{candidate.patient.demographics.name}</p>
-                    <Badge variant={candidate.score >= 260 ? "destructive" : "secondary"}>
-                      {getPriorityReviewLabel(candidate.score)}
-                    </Badge>
-                  </div>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {candidate.patient.hospital_name} • {candidate.patient.demographics.age}y{" "}
-                    {candidate.patient.demographics.gender === "female" ? "female" : "male"}
-                  </p>
-                  <p className="mt-2 text-sm font-medium text-foreground">
-                    {getCandidateReasonLine(candidate)}
-                  </p>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {getQueueSupportBadges(candidate).map((badge) => (
-                      <Badge key={badge} variant="outline" className="bg-background px-2 py-0 text-[11px]">
-                        {badge}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-                <div className="shrink-0 text-right">
-                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Updated</p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {formatRelativeTime(candidate.liveReading.timestamp)}
-                  </p>
-                </div>
+    <Card className="border-[#D6E8DD] bg-[linear-gradient(180deg,#F8FCFA_0%,#FFFFFF_22%)] shadow-sm">
+      <CardHeader className="gap-4 border-b border-[#E1EEE7] pb-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="space-y-2">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#E5F4EC] text-[#0F5F3D] shadow-sm">
+                <HeartPulse className="h-5 w-5" />
               </div>
-            </button>
-          ))
+              <div>
+                <CardTitle className="text-base text-[#163828]">Intervention Queue</CardTitle>
+                <CardDescription className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">
+                  Start from the queue, then open a case to review the CDS-backed intervention workspace.
+                </CardDescription>
+              </div>
+            </div>
+            <p className="text-sm font-medium text-[#163828]">
+              Next recommended review: {summary.nextLabel}
+            </p>
+            <p className="max-w-3xl text-sm text-muted-foreground">{summary.nextReason}</p>
+          </div>
+            <Badge className="w-fit rounded-full bg-[#0F5F3D] px-3 py-1 text-white hover:bg-[#0F5F3D]">
+              {summary.queueCount} cases waiting
+          </Badge>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-3">
+          <div className="rounded-2xl border border-[#D8ECDD] bg-white/90 p-3 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Context-elevated gaps</p>
+              <Users className="h-4 w-4 text-[#0F5F3D]" />
+            </div>
+            <p className="mt-3 text-3xl font-semibold text-[#163828]">{summary.contextElevatedGaps}</p>
+            <p className="mt-1 text-xs text-muted-foreground">Open gaps that are more urgent because current clinical context is raising pressure.</p>
+          </div>
+
+          <div className="rounded-2xl border border-[#F5D0D0] bg-[#FFF7F7] p-3 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Escalated cases</p>
+              <AlertTriangle className="h-4 w-4 text-destructive" />
+            </div>
+            <p className="mt-3 text-3xl font-semibold text-destructive">{summary.escalatedCount}</p>
+            <p className="mt-1 text-xs text-muted-foreground">Patients already meeting the threshold for immediate or high-priority intervention review.</p>
+          </div>
+
+          <div className="rounded-2xl border border-[#D8ECDD] bg-white/90 p-3 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Measures under pressure</p>
+              <ClipboardList className="h-4 w-4 text-[#0F5F3D]" />
+            </div>
+            <p className="mt-3 text-3xl font-semibold text-[#163828]">{summary.measureCount}</p>
+            <p className="mt-1 text-xs text-muted-foreground">Distinct HEDIS measures currently represented in the intervention queue.</p>
+          </div>
+        </div>
+      </CardHeader>
+
+      <CardContent className="space-y-4 pt-4">
+        {candidates.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-[#D6E8DD] bg-[#F8FCFA] px-4 py-8 text-center">
+            <p className="text-sm font-medium text-[#163828]">No intervention cases are waiting.</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              The queue will repopulate when new context-elevated gaps or alerts surface.
+            </p>
+          </div>
+        ) : (
+          <div className="max-h-[min(68vh,860px)] space-y-3 overflow-y-auto pr-1">
+            {candidates.map((candidate, index) => {
+              const isSelected = selectedPatientId === candidate.patient.patient_id
+
+              return (
+                <button
+                  key={candidate.patient.patient_id}
+                  type="button"
+                  onClick={() => onOpenPatient(candidate.patient.patient_id)}
+                  className={cn(
+                    "group w-full rounded-2xl border p-4 text-left shadow-sm transition-all",
+                    isSelected
+                      ? "border-[#0F5F3D] bg-[#F3FBF6] shadow-[0_8px_24px_rgba(15,95,61,0.12)]"
+                      : "border-border/70 bg-white hover:border-[#B8D8C6] hover:bg-[#FAFDFB] hover:shadow-md",
+                  )}
+                >
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge
+                          variant="outline"
+                          className="rounded-full border-[#DCEAE2] bg-[#FAFDFB] px-2.5 py-0.5 text-[11px] text-[#4E6B5C]"
+                        >
+                          Queue #{index + 1}
+                        </Badge>
+                        <Badge variant={getQueueUrgencyBadgeVariant(candidate)}>
+                          {getQueueUrgencyLabel(candidate)}
+                        </Badge>
+                        {candidate.topGap && (
+                          <Badge variant="secondary" className="bg-[#EDF4EF] text-[#234734]">
+                            {candidate.topGap.hedis_measure}
+                          </Badge>
+                        )}
+                      </div>
+
+                      <div className="mt-3 flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-lg font-semibold text-[#163828]">
+                              {candidate.patient.demographics.name}
+                            </p>
+                            {candidate.primaryAlert && (
+                              <Badge
+                                variant="outline"
+                                className="border-[#F5D0D0] bg-[#FFF6F6] text-[11px] text-destructive"
+                              >
+                                {capitalize(candidate.primaryAlert.severity)} alert context
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            {candidate.patient.hospital_name} • {candidate.patient.demographics.age}y{" "}
+                            {candidate.patient.demographics.gender === "female" ? "female" : "male"}
+                          </p>
+                          <p className="mt-3 text-sm font-medium leading-6 text-foreground">
+                            {getCandidateReasonLine(candidate)}
+                          </p>
+                        </div>
+
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        {getQueueSupportBadges(candidate).map((badge) => (
+                          <Badge
+                            key={badge}
+                            variant="outline"
+                            className="border-[#D2E5D9] bg-white px-2 py-0 text-[11px] text-[#335746]"
+                          >
+                            {badge}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex shrink-0 flex-col gap-3 lg:min-w-[270px] lg:items-end">
+                      <div className="w-full text-left lg:text-right">
+                        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Updated</p>
+                        <p className="mt-1 text-sm font-medium text-foreground">
+                          {formatRelativeTime(candidate.liveReading.timestamp)}
+                        </p>
+                      </div>
+
+                      <div className="grid w-full grid-cols-2 gap-2">
+                        <div className="rounded-xl border border-border/60 bg-background/70 px-3 py-2 text-left">
+                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Overdue gaps</p>
+                          <p className="mt-1 text-sm font-semibold text-foreground">{candidate.overdueGapCount}</p>
+                        </div>
+                        <div className="rounded-xl border border-border/60 bg-background/70 px-3 py-2 text-left">
+                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Recent alerts</p>
+                          <p className="mt-1 text-sm font-semibold text-foreground">{candidate.recentAlertCount}</p>
+                        </div>
+                      </div>
+
+                      <div className="flex w-full justify-start lg:justify-end">
+                        <span
+                          className={cn(
+                            "inline-flex items-center gap-2 self-start rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
+                            isSelected
+                              ? "border-[#B7D8C4] bg-[#EAF7EF] text-[#0F5F3D]"
+                              : "border-[#D2E5D9] bg-[#F8FCFA] text-[#0F5F3D] group-hover:border-[#A9CDB7]",
+                          )}
+                        >
+                          <span>{isSelected ? "Reviewing now" : "Open intervention"}</span>
+                          <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
         )}
+
         <div className="mt-3 rounded-lg border border-border/60 bg-muted/20 px-3 py-3">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-sm font-medium text-foreground">
@@ -806,56 +926,6 @@ function StatsCard({
       </CardContent>
     </Card>
   )
-}
-
-function buildLiveMetrics({
-  isRunning,
-  clinicalSummary,
-  liveReadings,
-  recentAlerts,
-}: {
-  isRunning: boolean
-  clinicalSummary: ClinicalSummaryMetrics
-  liveReadings: LiveReading[]
-  recentAlerts: AlertNotification[]
-}) {
-  const updatedLastMinute = liveReadings.filter((reading) => isWithinWindow(reading.timestamp, LIVE_WINDOW_MS)).length
-  const recentEscalationPatients = new Set(
-    recentAlerts
-      .filter((alert) => isWithinWindow(alert.timestamp, ALERT_WINDOW_MS))
-      .map((alert) => alert.patient_id),
-  )
-  const activePatternCount = liveReadings.filter((reading) => reading.event).length
-
-  return [
-    {
-      label: "Context-elevated gaps",
-      value: String(clinicalSummary.contextElevatedGapCount),
-      detail: isRunning
-        ? `${updatedLastMinute} records refreshed in the last minute`
-        : "Open gaps elevated by live context",
-      variant: "critical",
-    },
-    {
-      label: "Patients needing intervention",
-      value: String(clinicalSummary.interventionPatientCount),
-      detail:
-        activePatternCount > 0
-          ? `${activePatternCount} patients showing live pressure`
-          : "Patients needing outreach or review",
-      variant: "warning",
-    },
-    {
-      label: "Measures under pressure",
-      value: String(clinicalSummary.pressuredMeasureCount),
-      detail:
-        clinicalSummary.pressuredMeasureLabels.length > 0
-          ? `${clinicalSummary.pressuredMeasureLabels.join(", ")} under pressure`
-          : recentEscalationPatients.size > 0
-            ? `${recentEscalationPatients.size} priorities changed recently`
-            : "Measures with unresolved burden",
-    },
-  ] satisfies LiveMetric[]
 }
 
 function rankEscalationPatients(
@@ -1136,17 +1206,35 @@ function isImmediateReviewCandidate(candidate: EscalationCandidate) {
 }
 
 function getCandidateReasonLine(candidate: EscalationCandidate) {
-  const parts: string[] = []
   const topGap = candidate.topGap
+  const measureLabel = topGap ? getCareGapMeasureDashboardLabel(topGap.hedis_measure) : "This case"
+  const contextAmplifier = getCandidateContextAmplifier(candidate)
+  const clinicalAmplifier = getCandidateClinicalAmplifier(candidate)
 
-  if (topGap) {
-    parts.push(`${getCareGapMeasureDashboardLabel(topGap.hedis_measure)} gap`)
+  const normalizedContext = normalizeQueueReasonFragment(contextAmplifier)
+  const normalizedClinical = normalizeQueueReasonFragment(clinicalAmplifier)
+
+  if (topGap && normalizedContext && normalizedClinical) {
+    return `${measureLabel} is more urgent because ${normalizedContext} is paired with ${normalizedClinical}.`
   }
 
-  parts.push(getCandidateContextAmplifier(candidate))
-  parts.push(getCandidateClinicalAmplifier(candidate))
+  if (topGap && normalizedClinical) {
+    return `${measureLabel} is rising in priority because ${normalizedClinical}.`
+  }
 
-  return parts.filter(Boolean).slice(0, 3).join(" • ")
+  if (topGap && normalizedContext) {
+    return `${measureLabel} is higher priority in the setting of ${normalizedContext}.`
+  }
+
+  if (topGap) {
+    return `${measureLabel} is the primary open gap for review.`
+  }
+
+  if (normalizedClinical) {
+    return `This case needs review because ${normalizedClinical}.`
+  }
+
+  return "This patient has active intervention pressure requiring review."
 }
 
 function getQueueSupportBadges(candidate: EscalationCandidate) {
@@ -1167,16 +1255,35 @@ function getQueueSupportBadges(candidate: EscalationCandidate) {
 
 function getCandidateCoreBadges(candidate: EscalationCandidate) {
   const badges: string[] = []
-  const topGap = candidate.topGap
-
-  if (topGap) {
-    badges.push(topGap.hedis_measure)
-  }
-
   badges.push(...getPatientContextBadges(candidate.patient).slice(0, 2))
 
   return badges.slice(0, 3)
 }
+
+function getQueueUrgencyLabel(candidate: EscalationCandidate) {
+  if (candidate.primaryAlert?.severity === "critical" || candidate.score >= 260) {
+    return "Immediate review"
+  }
+
+  if (candidate.score >= 180) {
+    return "High priority"
+  }
+
+  return "Priority watch"
+}
+
+function getQueueUrgencyBadgeVariant(candidate: EscalationCandidate): "destructive" | "secondary" | "outline" {
+  if (candidate.primaryAlert?.severity === "critical" || candidate.score >= 260) {
+    return "destructive"
+  }
+
+  if (candidate.score >= 180) {
+    return "secondary"
+  }
+
+  return "outline"
+}
+
 
 function getCareGapsHandoff(candidates: EscalationCandidate[]) {
   const topMeasures = Array.from(
@@ -1249,6 +1356,35 @@ function getCandidateClinicalAmplifier(candidate: EscalationCandidate) {
   }
 
   return "Open gap burden remains unresolved"
+}
+
+function normalizeQueueReasonFragment(value: string) {
+  const normalized = lowercaseFirst(value.trim().replace(/\.$/, ""))
+
+  if (!normalized) return ""
+
+  const replacements: Record<string, string> = {
+    "ckd context": "CKD risk",
+    "hypertension context": "hypertension risk",
+    "quality risk context": "quality risk context",
+    "cardiovascular prevention risk": "cardiovascular prevention risk",
+    "diabetes screening risk": "diabetes screening risk",
+    "heart rate above threshold": "heart rate above threshold",
+    "heart rate below threshold": "heart rate below threshold",
+    "hr above threshold": "heart rate above threshold",
+    "hr below threshold": "heart rate below threshold",
+    "respiratory rate above threshold": "respiratory rate above threshold",
+    "respiratory rate below threshold": "respiratory rate below threshold",
+    "spo2 below threshold": "SpO2 below threshold",
+    "spo2 above threshold": "SpO2 above threshold",
+    "temperature above threshold": "temperature above threshold",
+    "temperature below threshold": "temperature below threshold",
+    "hypoglycemia pattern detected": "a hypoglycemia pattern is surfacing",
+    "sepsis pattern detected": "a sepsis pattern is surfacing",
+    "open gap burden remains unresolved": "open gap burden remains unresolved",
+  }
+
+  return replacements[normalized] ?? normalized
 }
 
 function getPrioritySignals(candidate: EscalationCandidate) {
