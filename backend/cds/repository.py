@@ -184,6 +184,18 @@ class CDSRepository:
             }},
         )
 
+    def update_patient_360_cdc_hba_workflow(
+        self, patient_id: str, cdc_hba_workflow: dict[str, Any],
+    ) -> None:
+        """Replace interventions.cdc_hba_workflow in a Patient 360 document."""
+        self._db.get_collection(PATIENT_360_COLLECTION).update_one(
+            {"patient_id": patient_id},
+            {"$set": {
+                "interventions.cdc_hba_workflow": cdc_hba_workflow,
+                "updated_at": datetime.utcnow().isoformat(),
+            }},
+        )
+
     def update_patient_360_thresholds(
         self, patient_id: str, thresholds: dict[str, Any],
     ) -> None:

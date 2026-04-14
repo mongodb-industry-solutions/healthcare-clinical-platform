@@ -509,6 +509,79 @@ export async function generateKedFollowUpSummary(
 }
 
 // ---------------------------------------------------------------------------
+// CDC-HBA Intervention Workflow
+// ---------------------------------------------------------------------------
+
+export interface CdcHbaWorkflowResponse {
+  patient_id: string
+  cdc_hba_gap_exists: boolean
+  cdc_hba_gap_open: boolean
+  workflow_status: "not_started" | "ordered" | "completed"
+  missing_evidence: string[]
+  latest_hba1c_lab: Record<string, unknown> | null
+  follow_up_recommended: boolean
+  follow_up_reason: string | null
+  follow_up_summary: FollowUpSummaryResponse | null
+}
+
+export interface OrderCdcHbaTestResponse {
+  patient_id: string
+  workflow_status: string
+  ordered_at: string
+  required_evidence: string[]
+}
+
+export interface RecordCdcHbaResultsPayload {
+  result_profile: "controlled" | "elevated" | "concerning"
+  recorded_by?: string
+}
+
+export interface RecordCdcHbaResultsResponse {
+  patient_id: string
+  workflow_status: string
+  cdc_hba_gap_status: string
+  follow_up_recommended: boolean
+  follow_up_reason: string | null
+  lab_written: Record<string, unknown> | null
+}
+
+export async function fetchCdcHbaWorkflow(
+  patientId: string,
+): Promise<CdcHbaWorkflowResponse> {
+  return apiFetch<CdcHbaWorkflowResponse>(`/interventions/cdc-hba/${patientId}`)
+}
+
+export async function orderCdcHbaTest(
+  patientId: string,
+  orderedBy: string = "demo_user",
+): Promise<OrderCdcHbaTestResponse> {
+  return apiFetch<OrderCdcHbaTestResponse>(
+    `/interventions/cdc-hba/${patientId}/order`,
+    { method: "POST", body: JSON.stringify({ ordered_by: orderedBy }) },
+  )
+}
+
+export async function recordCdcHbaResults(
+  patientId: string,
+  payload: RecordCdcHbaResultsPayload,
+): Promise<RecordCdcHbaResultsResponse> {
+  return apiFetch<RecordCdcHbaResultsResponse>(
+    `/interventions/cdc-hba/${patientId}/results`,
+    { method: "POST", body: JSON.stringify(payload) },
+  )
+}
+
+export async function generateCdcHbaFollowUpSummary(
+  patientId: string,
+  requestedBy: string = "demo_user",
+): Promise<FollowUpSummaryResponse> {
+  return apiFetch<FollowUpSummaryResponse>(
+    `/interventions/cdc-hba/${patientId}/follow-up-summary`,
+    { method: "POST", body: JSON.stringify({ requested_by: requestedBy }) },
+  )
+}
+
+// ---------------------------------------------------------------------------
 // CDS Hooks
 // ---------------------------------------------------------------------------
 

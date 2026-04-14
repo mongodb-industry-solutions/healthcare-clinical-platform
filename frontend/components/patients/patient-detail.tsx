@@ -50,6 +50,7 @@ import { MongodbActivityPanel } from "@/components/mongodb/mongodb-activity-pane
 import { Patient360EvolutionCard } from "@/components/mongodb/patient-360-evolution-card"
 import { VitalsChart, type ChartAnnotation } from "@/components/patients/vitals-chart"
 import { KedWorkflowCard } from "@/components/patients/ked-workflow-card"
+import { CdcHbaWorkflowCard } from "@/components/patients/cdc-hba-workflow-card"
 
 interface PatientDetailProps {
   patientId: string
@@ -498,6 +499,11 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
         {/* ---- Right sidebar ---- */}
         <div className="space-y-6">
           <KedWorkflowCard
+            patientId={patientId}
+            careGaps={care_gaps}
+            onWorkflowUpdated={reloadPatientData}
+          />
+          <CdcHbaWorkflowCard
             patientId={patientId}
             careGaps={care_gaps}
             onWorkflowUpdated={reloadPatientData}

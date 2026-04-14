@@ -2,10 +2,12 @@
 Intervention service.
 
 Orchestrates validation, workflow transitions, deterministic result
-generation, and care gap recompute for the KED workflow.
+generation, and care gap recompute for intervention workflows.
+
+Supports: KED, CDC-HBA.
 
 Responsibilities:
-- Validate patient + KED gap exist
+- Validate patient + measure gap exist
 - Validate gap is still open / in correct state before mutations
 - Build deterministic lab documents from preset profiles
 - Map abnormal values to follow-up recommendation
@@ -20,21 +22,32 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from interventions.models import (
+    CdcHbaResultProfile,
+    CdcHbaWorkflowStatusResponse,
+    GenerateCdcHbaFollowUpSummaryResponse,
     GenerateFollowUpSummaryResponse,
     KedResultProfile,
     KedWorkflowStatusResponse,
+    OrderCdcHbaTestResponse,
     OrderKedLabsResponse,
+    RecordCdcHbaResultsRequest,
+    RecordCdcHbaResultsResponse,
     RecordKedResultsRequest,
     RecordKedResultsResponse,
 )
-from interventions.repository import InterventionRepository, EGFR_LOINC, UACR_LOINC
+from interventions.repository import (
+    InterventionRepository,
+    EGFR_LOINC,
+    HBA1C_LOINC,
+    UACR_LOINC,
+)
 from cds.repository import CDSRepository
 from cds.service import CDSService
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Preset lab profiles (deterministic demo values)
+# KED preset lab profiles (deterministic demo values)
 # ---------------------------------------------------------------------------
 
 RESULT_PROFILES: dict[str, dict[str, Any]] = {
@@ -51,6 +64,24 @@ RESULT_PROFILES: dict[str, dict[str, Any]] = {
         "uacr": {"value": 85, "unit": "mg/g", "interpretation": "H"},
     },
 }
+
+# ---------------------------------------------------------------------------
+# CDC-HBA preset lab profiles (deterministic demo values)
+# ---------------------------------------------------------------------------
+
+CDC_HBA_RESULT_PROFILES: dict[str, dict[str, Any]] = {
+    "controlled": {
+        "value": 6.7, "unit": "%", "interpretation": "N",
+    },
+    "elevated": {
+        "value": 8.4, "unit": "%", "interpretation": "H",
+    },
+    "concerning": {
+        "value": 10.2, "unit": "%", "interpretation": "HH",
+    },
+}
+
+HBA1C_FOLLOW_UP_THRESHOLD = 7.0
 
 
 class InterventionService:
@@ -403,6 +434,289 @@ class InterventionService:
             "based_on": {
                 "egfr": egfr_lab or {},
                 "uacr": uacr_lab or {},
+                "patient_id": patient_doc.get("patient_id"),
+            },
+        }
+
+    # ==================================================================
+    # CDC-HBA workflow — public methods
+    # ==================================================================
+
+    def get_cdc_hba_workflow(
+        self, patient_id: str,
+    ) -> Optional[CdcHbaWorkflowStatusResponse]:
+        """Return the current CDC-HBA workflow state for a patient."""
+        p360 = self._repo.get_patient_360(patient_id)
+        if not p360:
+            return None
+
+        cdc_gap = None
+        for gap in p360.get("care_gaps", []):
+            if gap.get("hedis_measure") == "CDC-HBA":
+                cdc_gap = gap
+                break
+
+        workflow = p360.get("interventions", {}).get("cdc_hba_workflow", {})
+        hba1c_labs = self._repo.get_hba1c_labs(patient_id)
+        latest_lab = hba1c_labs[0] if hba1c_labs else None
+
+        return CdcHbaWorkflowStatusResponse(
+            patient_id=patient_id,
+            cdc_hba_gap_exists=cdc_gap is not None,
+            cdc_hba_gap_open=cdc_gap is not None and cdc_gap.get("status") == "open",
+            workflow_status=workflow.get("status", "not_started"),
+            missing_evidence=workflow.get("missing_evidence", ["HbA1c"]),
+            latest_hba1c_lab=latest_lab,
+            follow_up_recommended=workflow.get("follow_up_recommended", False),
+            follow_up_reason=workflow.get("follow_up_reason"),
+            follow_up_summary=workflow.get("follow_up_summary"),
+        )
+
+    def order_cdc_hba_test(
+        self,
+        patient_id: str,
+        ordered_by: str,
+    ) -> Optional[OrderCdcHbaTestResponse]:
+        """Mark the CDC-HBA workflow as ordered (HbA1c test pending)."""
+        p360 = self._repo.get_patient_360(patient_id)
+        if not p360:
+            return None
+
+        cdc_gap = None
+        for gap in p360.get("care_gaps", []):
+            if gap.get("hedis_measure") == "CDC-HBA":
+                cdc_gap = gap
+                break
+
+        if not cdc_gap or cdc_gap.get("status") != "open":
+            logger.warning(
+                "Cannot order CDC-HBA test for %s — gap not open", patient_id,
+            )
+            return None
+
+        now = datetime.now(timezone.utc)
+        self._repo.mark_cdc_hba_ordered(patient_id, ordered_by, now)
+
+        return OrderCdcHbaTestResponse(
+            patient_id=patient_id,
+            workflow_status="ordered",
+            ordered_at=now.isoformat(),
+            required_evidence=["HbA1c"],
+        )
+
+    def record_cdc_hba_results(
+        self,
+        patient_id: str,
+        body: RecordCdcHbaResultsRequest,
+    ) -> Optional[RecordCdcHbaResultsResponse]:
+        """Ingest HbA1c result, recompute CDC-HBA gap, set follow-up."""
+        p360 = self._repo.get_patient_360(patient_id)
+        if not p360:
+            return None
+
+        workflow = p360.get("interventions", {}).get("cdc_hba_workflow", {})
+        if workflow.get("status") not in ("ordered", "not_started"):
+            logger.warning(
+                "Cannot record CDC-HBA results for %s — workflow status is %s",
+                patient_id, workflow.get("status"),
+            )
+            return None
+
+        now = datetime.now(timezone.utc)
+        profile = body.result_profile.value
+
+        lab_doc = self._build_hba1c_lab_document(profile, body, now)
+        result_ids = [lab_doc["result_id"]]
+
+        self._repo.append_hba1c_lab(patient_id, lab_doc)
+
+        self._repo.set_cdc_hba_workflow_completed(
+            patient_id, body.recorded_by, now, profile, result_ids,
+        )
+
+        recomputed_gaps = self._cds.compute_care_gaps(patient_id)
+
+        cdc_gap_status = "open"
+        if recomputed_gaps:
+            for gap in recomputed_gaps:
+                if gap.get("hedis_measure") == "CDC-HBA":
+                    cdc_gap_status = gap.get("status", "open")
+                    break
+
+        hba1c_value = lab_doc["value"]
+        needs_follow_up = self._is_elevated_hba1c(hba1c_value)
+
+        evidence_update: dict[str, Any] = {
+            "workflow_status": "completed",
+            "closure_evidence": {
+                "required": ["HbA1c"],
+                "received": ["HbA1c"],
+                "missing": [],
+                "closed_at": now.isoformat(),
+            },
+            "status": "closed",
+            "last_completed": now.strftime("%Y-%m-%d"),
+            "days_overdue": 0,
+            "priority": "low",
+        }
+
+        follow_up_reason = None
+        if needs_follow_up:
+            follow_up_reason = "Elevated HbA1c result"
+            evidence_update["follow_up"] = {
+                "recommended": True,
+                "reason": follow_up_reason,
+                "status": "pending_review",
+            }
+            self._repo.set_cdc_hba_follow_up(
+                patient_id,
+                recommended=True,
+                reason=follow_up_reason,
+                summary=None,
+            )
+        else:
+            evidence_update["follow_up"] = {
+                "recommended": False,
+                "reason": None,
+                "status": "not_needed",
+            }
+            self._repo.set_cdc_hba_follow_up(
+                patient_id,
+                recommended=False,
+                reason=None,
+                summary=None,
+            )
+
+        self._repo.update_cdc_hba_gap_metadata(patient_id, evidence_update)
+
+        lab_summary = {
+            "loinc": lab_doc["loinc"],
+            "display": lab_doc["display"],
+            "value": lab_doc["value"],
+            "unit": lab_doc["unit"],
+            "interpretation": lab_doc["interpretation"],
+        }
+
+        return RecordCdcHbaResultsResponse(
+            patient_id=patient_id,
+            workflow_status="completed",
+            cdc_hba_gap_status="closed",
+            follow_up_recommended=needs_follow_up,
+            follow_up_reason=follow_up_reason,
+            lab_written=lab_summary,
+        )
+
+    def generate_cdc_hba_follow_up_summary(
+        self,
+        patient_id: str,
+        requested_by: str,
+    ) -> Optional[GenerateCdcHbaFollowUpSummaryResponse]:
+        """Generate a deterministic clinician review summary for CDC-HBA."""
+        p360 = self._repo.get_patient_360(patient_id)
+        if not p360:
+            return None
+
+        workflow = p360.get("interventions", {}).get("cdc_hba_workflow", {})
+        if not workflow.get("follow_up_recommended", False):
+            return None
+
+        hba1c_labs = self._repo.get_hba1c_labs(patient_id)
+        cdc_gap = self._repo.get_cdc_hba_gap(patient_id)
+        latest_lab = hba1c_labs[0] if hba1c_labs else None
+        summary = self._build_cdc_hba_follow_up_summary(p360, cdc_gap, latest_lab)
+
+        self._repo.set_cdc_hba_follow_up(
+            patient_id,
+            recommended=True,
+            reason=workflow.get("follow_up_reason", "Elevated HbA1c result"),
+            summary=summary,
+        )
+
+        return GenerateCdcHbaFollowUpSummaryResponse(
+            title=summary["title"],
+            summary=summary["summary"],
+            recommendations=summary["recommendations"],
+            based_on=summary["based_on"],
+        )
+
+    # ==================================================================
+    # CDC-HBA private helpers
+    # ==================================================================
+
+    @staticmethod
+    def _build_hba1c_lab_document(
+        profile: str,
+        body: RecordCdcHbaResultsRequest,
+        now: datetime,
+    ) -> dict[str, Any]:
+        """Create an HbA1c lab document from a preset profile or caller-provided value."""
+        preset = CDC_HBA_RESULT_PROFILES[profile]
+
+        if body.lab:
+            value = body.lab.value
+            unit = body.lab.unit
+            effective_date = (body.lab.effective_date or now).isoformat()
+            interpretation = "H" if value >= HBA1C_FOLLOW_UP_THRESHOLD else "N"
+        else:
+            value = preset["value"]
+            unit = preset["unit"]
+            effective_date = now.isoformat()
+            interpretation = preset["interpretation"]
+
+        return {
+            "result_id": str(uuid.uuid4()),
+            "loinc": HBA1C_LOINC,
+            "display": "Hemoglobin A1c/Hemoglobin.total in Blood",
+            "value": value,
+            "unit": unit,
+            "interpretation": interpretation,
+            "effective_date": effective_date,
+            "source": "demo_cdc_hba_workflow",
+        }
+
+    @staticmethod
+    def _is_elevated_hba1c(value: float) -> bool:
+        """HbA1c >= 7.0 % is considered elevated and triggers follow-up."""
+        return value >= HBA1C_FOLLOW_UP_THRESHOLD
+
+    @staticmethod
+    def _build_cdc_hba_follow_up_summary(
+        patient_doc: dict[str, Any],
+        cdc_gap: Optional[dict[str, Any]],
+        latest_lab: Optional[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Build a deterministic clinician review summary for elevated HbA1c."""
+        demographics = patient_doc.get("demographics", {})
+        patient_name = demographics.get("name", "Patient")
+        age = demographics.get("age", "unknown")
+
+        hba1c_str = (
+            f"{latest_lab['value']} {latest_lab['unit']}"
+            if latest_lab else "not available"
+        )
+
+        recommendations = [
+            "Review glycemic control trend",
+            "Assess diabetes follow-up plan",
+            "Confirm medication adherence and follow-up interval",
+        ]
+
+        if latest_lab and latest_lab.get("value", 0) >= 10.0:
+            recommendations.append(
+                "Urgent endocrinology referral — HbA1c at or above 10 %",
+            )
+
+        return {
+            "title": "Clinician review recommended after HbA1c testing",
+            "summary": (
+                f"HbA1c testing has been completed for {patient_name} "
+                f"(age {age}). The result is {hba1c_str}, which is above the "
+                "expected target range. Follow-up review is recommended even "
+                "though the CDC-HBA care gap is now closed."
+            ),
+            "recommendations": recommendations,
+            "based_on": {
+                "hba1c": latest_lab or {},
                 "patient_id": patient_doc.get("patient_id"),
             },
         }

@@ -1,10 +1,11 @@
 """
-Pydantic models for the KED Intervention Workflow.
+Pydantic models for the Intervention Workflow domain.
 
 Covers:
-- Request / response DTOs for each KED endpoint
-- KED result profile enum
+- Request / response DTOs for KED and CDC-HBA endpoints
+- Result profile enums per measure
 - Lab input sub-models
+- Shared closure-evidence and follow-up DTOs
 """
 from __future__ import annotations
 
@@ -116,6 +117,88 @@ class RecordKedResultsResponse(BaseModel):
 
 
 class GenerateFollowUpSummaryResponse(BaseModel):
+    title: str
+    summary: str
+    recommendations: list[str] = Field(default_factory=list)
+    based_on: dict[str, Any] = Field(default_factory=dict)
+
+
+# ===================================================================
+# CDC-HBA (Hemoglobin A1c) Intervention Workflow
+# ===================================================================
+
+# ---------------------------------------------------------------------------
+# Enums
+# ---------------------------------------------------------------------------
+
+class CdcHbaResultProfile(str, Enum):
+    CONTROLLED = "controlled"
+    ELEVATED = "elevated"
+    CONCERNING = "concerning"
+
+
+# ---------------------------------------------------------------------------
+# Lab sub-models
+# ---------------------------------------------------------------------------
+
+class Hba1cLabInput(BaseModel):
+    """A single HbA1c lab value provided by the caller."""
+    value: float
+    unit: str = "%"
+    effective_date: Optional[datetime] = None
+
+
+# ---------------------------------------------------------------------------
+# Request models
+# ---------------------------------------------------------------------------
+
+class OrderCdcHbaTestRequest(BaseModel):
+    ordered_by: str = "demo_user"
+
+
+class RecordCdcHbaResultsRequest(BaseModel):
+    result_profile: CdcHbaResultProfile
+    recorded_by: str = "demo_user"
+    lab: Optional[Hba1cLabInput] = None
+
+
+class GenerateCdcHbaFollowUpSummaryRequest(BaseModel):
+    requested_by: str = "demo_user"
+
+
+# ---------------------------------------------------------------------------
+# Response models
+# ---------------------------------------------------------------------------
+
+class CdcHbaWorkflowStatusResponse(BaseModel):
+    patient_id: str
+    cdc_hba_gap_exists: bool = False
+    cdc_hba_gap_open: bool = False
+    workflow_status: str = "not_started"
+    missing_evidence: list[str] = Field(default_factory=lambda: ["HbA1c"])
+    latest_hba1c_lab: Optional[dict[str, Any]] = None
+    follow_up_recommended: bool = False
+    follow_up_reason: Optional[str] = None
+    follow_up_summary: Optional[dict[str, Any]] = None
+
+
+class OrderCdcHbaTestResponse(BaseModel):
+    patient_id: str
+    workflow_status: str = "ordered"
+    ordered_at: str
+    required_evidence: list[str] = Field(default_factory=lambda: ["HbA1c"])
+
+
+class RecordCdcHbaResultsResponse(BaseModel):
+    patient_id: str
+    workflow_status: str = "completed"
+    cdc_hba_gap_status: str
+    follow_up_recommended: bool = False
+    follow_up_reason: Optional[str] = None
+    lab_written: Optional[dict[str, Any]] = None
+
+
+class GenerateCdcHbaFollowUpSummaryResponse(BaseModel):
     title: str
     summary: str
     recommendations: list[str] = Field(default_factory=list)

@@ -719,6 +719,8 @@ class CDSService:
             last_completed = None
             ked_evidence_received: list[str] = []
             ked_evidence_missing: list[str] = []
+            cdc_hba_evidence_received: list[str] = []
+            cdc_hba_evidence_missing: list[str] = []
 
             lab_loinc = measure.get("lab_loinc")
 
@@ -744,6 +746,19 @@ class CDSService:
                 all_dates = egfr_dates + uacr_dates
                 if len(ked_evidence_received) == 2 and all_dates:
                     last_completed = max(all_dates)
+
+            # CDC-HBA requires HbA1c
+            elif measure["measure_code"] == "CDC-HBA":
+                hba1c_dates = [
+                    lb.get("effective_date") for lb in labs
+                    if lb.get("loinc") == "4548-4" and lb.get("effective_date")
+                ]
+                if hba1c_dates:
+                    cdc_hba_evidence_received.append("HbA1c")
+                    last_completed = max(hba1c_dates)
+                else:
+                    cdc_hba_evidence_missing.append("HbA1c")
+
             elif lab_loinc:
                 matching = [lb for lb in labs if lb.get("loinc") == lab_loinc]
                 if matching:
@@ -833,10 +848,33 @@ class CDSService:
                     ),
                 }
 
+            # CDC-HBA: add workflow-aware metadata
+            if measure["measure_code"] == "CDC-HBA":
+                workflow = p360.get("interventions", {}).get("cdc_hba_workflow", {})
+                gap_entry["workflow_status"] = workflow.get("status", "not_started")
+                gap_entry["closure_evidence"] = {
+                    "required": ["HbA1c"],
+                    "received": cdc_hba_evidence_received,
+                    "missing": cdc_hba_evidence_missing,
+                    "closed_at": (
+                        last_completed if status == "closed" else None
+                    ),
+                }
+                follow_up = workflow.get("follow_up_recommended", False)
+                gap_entry["follow_up"] = {
+                    "recommended": follow_up,
+                    "reason": workflow.get("follow_up_reason"),
+                    "status": (
+                        "pending_review" if follow_up
+                        else "not_needed"
+                    ),
+                }
+
             care_gaps.append(gap_entry)
 
         self._repo.update_patient_360_care_gaps(patient_id, care_gaps)
         self._sync_ked_workflow(patient_id, p360, care_gaps)
+        self._sync_cdc_hba_workflow(patient_id, p360, care_gaps)
         return care_gaps
 
     @staticmethod
@@ -936,6 +974,60 @@ class CDSService:
                 ked_workflow["completed_at"] = closed_at or datetime.utcnow().isoformat()
 
         self._repo.update_patient_360_ked_workflow(patient_id, ked_workflow)
+
+    def _sync_cdc_hba_workflow(
+        self,
+        patient_id: str,
+        p360: dict[str, Any],
+        care_gaps: list[dict[str, Any]],
+    ) -> None:
+        """Keep interventions.cdc_hba_workflow aligned with the computed CDC-HBA gap state."""
+        cdc_gap = next(
+            (gap for gap in care_gaps if gap.get("hedis_measure") == "CDC-HBA"),
+            None,
+        )
+        if not cdc_gap:
+            return
+
+        existing_workflow = p360.get("interventions", {}).get("cdc_hba_workflow", {})
+        closure_evidence = cdc_gap.get("closure_evidence", {})
+        follow_up = cdc_gap.get("follow_up", {})
+        gap_status = cdc_gap.get("status", "open")
+        existing_status = existing_workflow.get("status", "not_started")
+
+        if gap_status == "closed":
+            workflow_status = "completed"
+        elif existing_status == "ordered":
+            workflow_status = "ordered"
+        else:
+            workflow_status = "not_started"
+
+        closed_at = closure_evidence.get("closed_at")
+        ordered_at = existing_workflow.get("ordered_at")
+        completed_at = existing_workflow.get("completed_at")
+
+        cdc_hba_workflow = {
+            "status": workflow_status,
+            "ordered_at": ordered_at,
+            "ordered_by": existing_workflow.get("ordered_by"),
+            "completed_at": completed_at or closed_at,
+            "completed_by": existing_workflow.get("completed_by"),
+            "required_evidence": closure_evidence.get("required", ["HbA1c"]),
+            "missing_evidence": closure_evidence.get("missing", ["HbA1c"]),
+            "latest_result_profile": existing_workflow.get("latest_result_profile"),
+            "latest_result_ids": existing_workflow.get("latest_result_ids", []),
+            "follow_up_recommended": follow_up.get("recommended", False),
+            "follow_up_reason": follow_up.get("reason"),
+            "follow_up_summary": existing_workflow.get("follow_up_summary"),
+            "last_updated_at": datetime.utcnow().isoformat(),
+        }
+
+        if workflow_status == "completed":
+            cdc_hba_workflow["missing_evidence"] = []
+            if not cdc_hba_workflow["completed_at"]:
+                cdc_hba_workflow["completed_at"] = closed_at or datetime.utcnow().isoformat()
+
+        self._repo.update_patient_360_cdc_hba_workflow(patient_id, cdc_hba_workflow)
 
     @staticmethod
     def _bump_priority(priority: str) -> str:
