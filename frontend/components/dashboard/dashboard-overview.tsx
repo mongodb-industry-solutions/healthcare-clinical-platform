@@ -4,9 +4,15 @@ import * as React from "react"
 import {
   AlertTriangle,
   ArrowRight,
+  BarChart3,
+  Bell,
+  ChevronRight,
   ClipboardList,
   HeartPulse,
+  Layers,
   Loader2,
+  ShieldCheck,
+  Sparkles,
   TrendingDown,
   TrendingUp,
   Users,
@@ -657,74 +663,167 @@ function ReviewQueueCard({
 }) {
   const careGapsHandoff = getCareGapsHandoff(candidates)
 
+  const priorityBreakdown = (() => {
+    let immediate = 0
+    let high = 0
+    let watch = 0
+    candidates.forEach((c) => {
+      const label = getQueueUrgencyLabel(c)
+      if (label === "Immediate review") immediate++
+      else if (label === "High priority") high++
+      else watch++
+    })
+    const total = candidates.length || 1
+    return {
+      immediate,
+      high,
+      watch,
+      immediatePct: Math.round((immediate / total) * 100),
+      highPct: Math.round((high / total) * 100),
+      watchPct: Math.round((watch / total) * 100),
+    }
+  })()
+
+  const measureDistribution = (() => {
+    const counts = new Map<string, number>()
+    candidates.forEach((c) => {
+      const measure = c.topGap?.hedis_measure
+      if (measure) counts.set(measure, (counts.get(measure) ?? 0) + 1)
+    })
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+  })()
+
+  const maxMeasureCount = measureDistribution[0]?.[1] ?? 1
+
   return (
-    <Card className="border-[#D6E8DD] bg-[linear-gradient(180deg,#F8FCFA_0%,#FFFFFF_22%)] shadow-sm">
-      <CardHeader className="gap-4 border-b border-[#E1EEE7] pb-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div className="space-y-2">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#E5F4EC] text-[#0F5F3D] shadow-sm">
-                <HeartPulse className="h-5 w-5" />
+    <div className="space-y-4">
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card className="gap-1.5 border-border/60 py-3 shadow-sm">
+          <CardHeader className="px-4">
+            <CardTitle className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
+              <ShieldCheck className="h-3.5 w-3.5" />
+              Priority Breakdown
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 px-4">
+            {([
+              { label: "Immediate review", count: priorityBreakdown.immediate, pct: priorityBreakdown.immediatePct, dotClass: "bg-red-500" },
+              { label: "High priority", count: priorityBreakdown.high, pct: priorityBreakdown.highPct, dotClass: "bg-amber-500" },
+              { label: "Priority watch", count: priorityBreakdown.watch, pct: priorityBreakdown.watchPct, dotClass: "bg-blue-500" },
+            ] as const).map((row) => (
+              <div key={row.label} className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className={cn("h-2 w-2 rounded-full", row.dotClass)} />
+                  <span className="text-sm text-foreground">{row.label}</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm font-semibold tabular-nums">{row.count}</span>
+                  <span className="rounded-full border px-1.5 py-0 text-[10px] tabular-nums text-muted-foreground">
+                    {row.pct}%
+                  </span>
+                </div>
               </div>
-              <div>
-                <CardTitle className="text-base text-[#163828]">Intervention Queue</CardTitle>
-                <CardDescription className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">
-                  Start from the queue, then open a case to review the CDS-backed intervention workspace.
-                </CardDescription>
+            ))}
+          </CardContent>
+        </Card>
+
+        <Card className="gap-1.5 border-border/60 py-3 shadow-sm">
+          <CardHeader className="px-4">
+            <CardTitle className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
+              <BarChart3 className="h-3.5 w-3.5" />
+              Queue by Measure
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 px-4">
+            {measureDistribution.length > 0 ? (
+              measureDistribution.map(([measure, count], idx) => {
+                const barColors = ["bg-indigo-500", "bg-amber-500", "bg-sky-500", "bg-teal-500", "bg-slate-400"]
+                return (
+                  <div key={measure} className="space-y-1">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-medium text-foreground">{getCareGapMeasureDashboardLabel(measure)}</span>
+                      <span className="tabular-nums text-muted-foreground">{count}</span>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className={cn("h-full rounded-full transition-all", barColors[idx % barColors.length])}
+                        style={{ width: `${(count / maxMeasureCount) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                )
+              })
+            ) : (
+              <p className="text-sm text-muted-foreground">No measures in queue.</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="gap-1.5 border-border/60 py-3 shadow-sm">
+          <CardHeader className="px-4">
+            <CardTitle className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              Escalated Cases
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-4">
+            <div className="flex items-baseline gap-2">
+              <TrendingUp className="h-4 w-4 self-center text-destructive" />
+              <p className="text-2xl font-semibold tabular-nums text-destructive">{summary.escalatedCount}</p>
+              <p className="text-xs text-muted-foreground">Patients at immediate or high-priority threshold</p>
+            </div>
+            <div className="mt-2 border-t border-border/60 pt-2">
+              <div className="flex items-center gap-1.5">
+                <ClipboardList className="h-3 w-3 text-[#0F5F3D]" />
+                <span className="text-xs font-medium text-foreground">Measures Under Pressure</span>
+              </div>
+              <div className="mt-0.5 flex items-baseline gap-2">
+                <p className="text-xl font-semibold tabular-nums text-[#163828]">{summary.measureCount}</p>
+                <p className="text-xs text-muted-foreground">Distinct HEDIS measures in queue</p>
               </div>
             </div>
-            <p className="text-sm font-medium text-[#163828]">
-              Next recommended review: {summary.nextLabel}
-            </p>
-            <p className="max-w-3xl text-sm text-muted-foreground">{summary.nextReason}</p>
-          </div>
-            <Badge className="w-fit rounded-full bg-[#0F5F3D] px-3 py-1 text-white hover:bg-[#0F5F3D]">
-              {summary.queueCount} cases waiting
-          </Badge>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="flex items-center justify-between gap-4 rounded-xl border border-[#D6E8DD] bg-[#F8FCFA] px-4 py-3">
+        <div className="min-w-0">
+          <p className="flex items-center gap-1.5 text-sm font-medium text-[#163828]">
+            <Sparkles className="h-3.5 w-3.5 text-[#0F5F3D]" />
+            Next recommended review: <span className="text-[#0F5F3D]">{summary.nextLabel}</span>
+          </p>
+          <p className="mt-0.5 text-sm text-muted-foreground line-clamp-1">{summary.nextReason}</p>
         </div>
+        <Badge className="flex shrink-0 items-center gap-1.5 rounded-full bg-[#0F5F3D] px-3 py-1 text-white hover:bg-[#0F5F3D]">
+          <Users className="h-3 w-3" />
+          {summary.queueCount} cases waiting
+        </Badge>
+      </div>
 
-        <div className="grid gap-3 md:grid-cols-3">
-          <div className="rounded-2xl border border-[#D8ECDD] bg-white/90 p-3 shadow-sm">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Context-elevated gaps</p>
-              <Users className="h-4 w-4 text-[#0F5F3D]" />
-            </div>
-            <p className="mt-3 text-3xl font-semibold text-[#163828]">{summary.contextElevatedGaps}</p>
-            <p className="mt-1 text-xs text-muted-foreground">Open gaps that are more urgent because current clinical context is raising pressure.</p>
+      <Card className="gap-0 overflow-hidden border-border/60 py-0 shadow-sm">
+        <div className="flex items-center gap-4 border-b border-border/40 px-4 py-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/60">
+          <div className="w-9 shrink-0" />
+          <div className="flex min-w-0 flex-1">
+            <span className="flex items-center gap-1"><Users className="h-3 w-3" />Patient</span>
+            <span className="ml-auto">Conditions</span>
           </div>
-
-          <div className="rounded-2xl border border-[#F5D0D0] bg-[#FFF7F7] p-3 shadow-sm">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Escalated cases</p>
-              <AlertTriangle className="h-4 w-4 text-destructive" />
-            </div>
-            <p className="mt-3 text-3xl font-semibold text-destructive">{summary.escalatedCount}</p>
-            <p className="mt-1 text-xs text-muted-foreground">Patients already meeting the threshold for immediate or high-priority intervention review.</p>
-          </div>
-
-          <div className="rounded-2xl border border-[#D8ECDD] bg-white/90 p-3 shadow-sm">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Measures under pressure</p>
-              <ClipboardList className="h-4 w-4 text-[#0F5F3D]" />
-            </div>
-            <p className="mt-3 text-3xl font-semibold text-[#163828]">{summary.measureCount}</p>
-            <p className="mt-1 text-xs text-muted-foreground">Distinct HEDIS measures currently represented in the intervention queue.</p>
-          </div>
+          <span className="hidden w-[152px] shrink-0 text-center sm:block">Counter</span>
+          <div className="w-4 shrink-0" />
         </div>
-      </CardHeader>
-
-      <CardContent className="space-y-4 pt-4">
         {candidates.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-[#D6E8DD] bg-[#F8FCFA] px-4 py-8 text-center">
+          <div className="px-4 py-8 text-center">
             <p className="text-sm font-medium text-[#163828]">No intervention cases are waiting.</p>
             <p className="mt-1 text-sm text-muted-foreground">
               The queue will repopulate when new context-elevated gaps or alerts surface.
             </p>
           </div>
         ) : (
-          <div className="max-h-[min(68vh,860px)] space-y-3 overflow-y-auto pr-1">
-            {candidates.map((candidate, index) => {
+          <div className="divide-y divide-border/40">
+            {candidates.map((candidate) => {
               const isSelected = selectedPatientId === candidate.patient.patient_id
+              const urgencyLabel = getQueueUrgencyLabel(candidate)
 
               return (
                 <button
@@ -732,111 +831,80 @@ function ReviewQueueCard({
                   type="button"
                   onClick={() => onOpenPatient(candidate.patient.patient_id)}
                   className={cn(
-                    "group w-full rounded-2xl border p-4 text-left shadow-sm transition-all",
-                    isSelected
-                      ? "border-[#0F5F3D] bg-[#F3FBF6] shadow-[0_8px_24px_rgba(15,95,61,0.12)]"
-                      : "border-border/70 bg-white hover:border-[#B8D8C6] hover:bg-[#FAFDFB] hover:shadow-md",
+                    "group flex w-full items-start gap-4 px-4 py-3 text-left transition-colors",
+                    isSelected ? "bg-[#F3FBF6]" : "hover:bg-muted/20",
                   )}
                 >
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
+                  <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
+                    {candidate.patient.demographics.given?.[0]}
+                    {candidate.patient.demographics.family?.[0]}
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="truncate text-sm font-medium text-foreground">
+                        {candidate.patient.demographics.name}
+                      </p>
+                      <div className="ml-auto flex shrink-0 items-center gap-1.5">
                         <Badge
-                          variant="outline"
-                          className="rounded-full border-[#DCEAE2] bg-[#FAFDFB] px-2.5 py-0.5 text-[11px] text-[#4E6B5C]"
+                          variant={getQueueUrgencyBadgeVariant(candidate)}
+                          className={cn(
+                            "text-[10px]",
+                            getQueueUrgencyBadgeVariant(candidate) === "destructive" &&
+                              "border-[#F5D0D0] bg-[#FFF0F0] text-destructive",
+                          )}
                         >
-                          Queue #{index + 1}
-                        </Badge>
-                        <Badge variant={getQueueUrgencyBadgeVariant(candidate)}>
-                          {getQueueUrgencyLabel(candidate)}
+                          {urgencyLabel}
                         </Badge>
                         {candidate.topGap && (
-                          <Badge variant="secondary" className="bg-[#EDF4EF] text-[#234734]">
+                          <Badge variant="secondary" className="bg-[#EDF4EF] text-[10px] text-[#234734]">
                             {candidate.topGap.hedis_measure}
                           </Badge>
                         )}
-                      </div>
-
-                      <div className="mt-3 flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p className="text-lg font-semibold text-[#163828]">
-                              {candidate.patient.demographics.name}
-                            </p>
-                            {candidate.primaryAlert && (
-                              <Badge
-                                variant="outline"
-                                className="border-[#F5D0D0] bg-[#FFF6F6] text-[11px] text-destructive"
-                              >
-                                {capitalize(candidate.primaryAlert.severity)} alert context
-                              </Badge>
-                            )}
-                          </div>
-                          <p className="mt-1 text-sm text-muted-foreground">
-                            {candidate.patient.hospital_name} • {candidate.patient.demographics.age}y{" "}
-                            {candidate.patient.demographics.gender === "female" ? "female" : "male"}
-                          </p>
-                          <p className="mt-3 text-sm font-medium leading-6 text-foreground">
-                            {getCandidateReasonLine(candidate)}
-                          </p>
-                        </div>
-
-                      </div>
-
-                      <div className="mt-3 flex flex-wrap gap-1.5">
-                        {getQueueSupportBadges(candidate).map((badge) => (
+                        {candidate.primaryAlert && (
                           <Badge
-                            key={badge}
                             variant="outline"
-                            className="border-[#D2E5D9] bg-white px-2 py-0 text-[11px] text-[#335746]"
+                            className="border-[#F5D0D0] bg-[#FFF6F6] text-[10px] text-destructive"
                           >
-                            {badge}
+                            {capitalize(candidate.primaryAlert.severity)} alert
                           </Badge>
-                        ))}
+                        )}
                       </div>
                     </div>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {candidate.patient.hospital_name} • {candidate.patient.demographics.age}y{" "}
+                      {candidate.patient.demographics.gender === "female" ? "F" : "M"}
+                    </p>
+                    <p className="mt-0.5 text-xs leading-snug text-muted-foreground/80 line-clamp-1">
+                      {getCandidateReasonLine(candidate)}
+                    </p>
+                  </div>
 
-                    <div className="flex shrink-0 flex-col gap-3 lg:min-w-[270px] lg:items-end">
-                      <div className="w-full text-left lg:text-right">
-                        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Updated</p>
-                        <p className="mt-1 text-sm font-medium text-foreground">
-                          {formatRelativeTime(candidate.liveReading.timestamp)}
-                        </p>
+                  <div className="hidden shrink-0 items-start gap-2 sm:flex">
+                    <div className="w-[72px] rounded-lg border border-border/60 bg-muted/30 py-1.5 text-center">
+                      <div className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+                        <Layers className="h-2.5 w-2.5" />
+                        Gaps
                       </div>
-
-                      <div className="grid w-full grid-cols-2 gap-2">
-                        <div className="rounded-xl border border-border/60 bg-background/70 px-3 py-2 text-left">
-                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Overdue gaps</p>
-                          <p className="mt-1 text-sm font-semibold text-foreground">{candidate.overdueGapCount}</p>
-                        </div>
-                        <div className="rounded-xl border border-border/60 bg-background/70 px-3 py-2 text-left">
-                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Recent alerts</p>
-                          <p className="mt-1 text-sm font-semibold text-foreground">{candidate.recentAlertCount}</p>
-                        </div>
+                      <p className="text-sm font-semibold tabular-nums text-foreground">{candidate.overdueGapCount}</p>
+                    </div>
+                    <div className="w-[72px] rounded-lg border border-border/60 bg-muted/30 py-1.5 text-center">
+                      <div className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+                        <Bell className="h-2.5 w-2.5" />
+                        Alerts
                       </div>
-
-                      <div className="flex w-full justify-start lg:justify-end">
-                        <span
-                          className={cn(
-                            "inline-flex items-center gap-2 self-start rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
-                            isSelected
-                              ? "border-[#B7D8C4] bg-[#EAF7EF] text-[#0F5F3D]"
-                              : "border-[#D2E5D9] bg-[#F8FCFA] text-[#0F5F3D] group-hover:border-[#A9CDB7]",
-                          )}
-                        >
-                          <span>{isSelected ? "Reviewing now" : "Open intervention"}</span>
-                          <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-                        </span>
-                      </div>
+                      <p className="text-sm font-semibold tabular-nums text-foreground">{candidate.recentAlertCount}</p>
                     </div>
                   </div>
+
+                  <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
                 </button>
               )
             })}
           </div>
         )}
 
-        <div className="mt-3 rounded-lg border border-border/60 bg-muted/20 px-3 py-3">
+        <div className="border-t border-border/60 bg-muted/20 px-4 py-2.5">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-sm font-medium text-foreground">
               <ClipboardList className="h-4 w-4 text-primary" />
@@ -850,8 +918,8 @@ function ReviewQueueCard({
             </Button>
           </div>
         </div>
-      </CardContent>
-    </Card>
+      </Card>
+    </div>
   )
 }
 
@@ -1470,3 +1538,4 @@ function capitalize(value: string) {
   if (!value) return value
   return `${value[0].toUpperCase()}${value.slice(1)}`
 }
+
