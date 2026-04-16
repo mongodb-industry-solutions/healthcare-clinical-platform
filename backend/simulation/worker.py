@@ -353,12 +353,20 @@ class SimulationWorker:
                 if result and result.alerts_generated > 0:
                     p360 = cds_repo.get_patient_360(pid)
                     patient_name = p360.get("demographics", {}).get("name", "") if p360 else ""
-                    active_alerts = p360.get("active_alerts", []) if p360 else []
                     alert_events.append({
                         "patient_id": pid,
                         "patient_name": patient_name,
                         "alerts_generated": result.alerts_generated,
-                        "active_alerts": active_alerts,
+                        "active_alerts": [
+                            {
+                                "alert_id": a.get("alert_id"),
+                                "title": a.get("title"),
+                                "severity": a.get("severity"),
+                                "reasoning": a.get("reasoning"),
+                                "created_at": a.get("created_at"),
+                            }
+                            for a in result.alerts
+                        ],
                     })
             except Exception:
                 logger.exception("CDS evaluation failed for %s", pid)

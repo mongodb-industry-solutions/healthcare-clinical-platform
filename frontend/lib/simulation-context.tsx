@@ -86,10 +86,12 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
   const addAlerts = React.useCallback(
     (newAlerts: AlertNotification[]) => {
       setRecentAlerts((prev) => {
-        const combined = [...newAlerts, ...prev]
-        return combined.slice(0, MAX_ALERTS)
+        const existingIds = new Set(prev.map((a) => a.id))
+        const deduped = newAlerts.filter((a) => !existingIds.has(a.id))
+        if (deduped.length === 0) return prev
+        setSessionAlertCount((c) => c + deduped.length)
+        return [...deduped, ...prev].slice(0, MAX_ALERTS)
       })
-      setSessionAlertCount((prev) => prev + newAlerts.length)
 
       // Debounced data refresh so dashboard KPIs, sidebar badges, etc. stay current
       if (dataVersionTimerRef.current) clearTimeout(dataVersionTimerRef.current)

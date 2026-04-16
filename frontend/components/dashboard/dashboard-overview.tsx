@@ -1057,7 +1057,7 @@ function buildEscalationCandidate(
     liveSignals,
     thresholdBreaches,
     overdueGapCount,
-    recentAlertCount: recentSessionAlerts.length,
+    recentAlertCount: patient.active_alerts.length,
     eventLabel: liveReading?.event ? capitalize(liveReading.event) : null,
     measurePressureScore,
     livePressureScore,
