@@ -28,8 +28,10 @@ export type MongoActivityEvent = {
 export type EvolutionMilestone = {
   id: string
   title: string
+  description: string
   timestamp?: string | null
-  diffs: FieldDiff[]
+  documentBefore: Record<string, unknown>
+  documentAfter: Record<string, unknown>
 }
 
 export type DataModelSummary = {
@@ -61,6 +63,7 @@ type KedWorkflow = {
 type Patient360WithWorkflow = Patient360 & {
   interventions?: {
     ked_workflow?: KedWorkflow
+    cdc_hba_workflow?: KedWorkflow
   }
 }
 
@@ -328,6 +331,12 @@ export function buildPatientEvolution(
     "not_started"
 
   const milestones: EvolutionMilestone[] = []
+  const oid = fakeObjectId(patient.patient_id)
+
+  const stubDoc = buildStubSnapshot(patient, oid)
+  const personalizedDoc = buildPersonalizedSnapshot(patient, oid)
+  const vitalsDoc = buildWithVitalsSnapshot(patient, personalizedDoc)
+  const thresholdsDoc = buildWithThresholdsSnapshot(patient, vitalsDoc)
 
   const kedGap = getKedGap(careGaps)
   const workflowTimestamp =
@@ -337,112 +346,274 @@ export function buildPatientEvolution(
     refreshedAt ??
     patient.updated_at
 
-  if (workflowState !== "not_started" || workflow?.follow_up_recommended || kedGap?.workflow_status) {
-    const kedDiffs: FieldDiff[] = [
-      {
-        path: "interventions.ked_workflow.status",
-        kind: "changed",
-        before: "not_started",
-        after: workflowState,
-      },
-      {
-        path: "care_gaps.KED.workflow_status",
-        kind: "changed",
-        before: "not_started",
-        after: kedGap?.workflow_status ?? workflowState,
-      },
-      {
-        path: "care_gaps.KED.closure_evidence.received",
-        kind: "changed",
-        before: [],
-        after: kedGap?.closure_evidence?.received ?? [],
-      },
-    ]
-
-    const followUpSummary = workflow?.follow_up_summary
-    if (followUpSummary?.title) {
-      kedDiffs.push({
-        path: "interventions.ked_workflow.follow_up_summary",
-        kind: "added",
-        after: {
-          title: followUpSummary.title,
-          summary: followUpSummary.summary,
-          recommendations: followUpSummary.recommendations,
-        },
-      })
-    }
-
-    milestones.push({
-      id: "ked-workflow-updated",
-      title: "KED workflow updated",
-      timestamp: workflowTimestamp,
-      diffs: kedDiffs,
-    })
-  }
-
   milestones.push({
     id: "personalized",
     title: "Patient 360 personalized",
+    description:
+      "FHIR data materialized into a rich, query-ready patient document with nested demographics, typed conditions, and computed clinical flags — no fixed schema required.",
     timestamp: patient.created_at,
-    diffs: [
-      { path: "demographics.name", kind: "added", after: patient.demographics.name },
-      { path: "profile_type", kind: "added", after: patient.profile_type },
-      { path: "source_hospital", kind: "added", after: patient.hospital_name },
-      {
-        path: "conditions",
-        kind: "added",
-        after: `${patient.conditions.length} active conditions`,
-      },
-    ],
+    documentBefore: stubDoc,
+    documentAfter: personalizedDoc,
   })
 
   if (refreshedAt) {
     milestones.push({
       id: "vitals-refreshed",
       title: "Vitals summary refreshed",
+      description:
+        "Real-time vitals embedded directly into the patient document as nested summaries with trends, enabling single-query clinical lookups.",
       timestamp: refreshedAt,
-      diffs: [
-        {
-          path: "vitals_summary.latest",
-          kind: "changed",
-          before: "Prior summary",
-          after: patient.vitals_summary.latest,
-        },
-        {
-          path: "vitals_summary.trend_24h",
-          kind: "changed",
-          before: "Prior trend window",
-          after: patient.vitals_summary.trend_24h,
-        },
-        {
-          path: "vitals_summary.refreshed_at",
-          kind: "changed",
-          before: "Previous refresh",
-          after: refreshedAt,
-        },
-      ],
+      documentBefore: personalizedDoc,
+      documentAfter: vitalsDoc,
     })
   }
 
-  const thresholdDiffs = Object.entries(patient.personalized_thresholds)
+  const activeThresholds = Object.entries(patient.personalized_thresholds)
     .filter(([, value]) => Boolean(value?.source_rule))
-    .map(([key, value]) => ({
-      path: `personalized_thresholds.${key}`,
-      kind: "changed" as const,
-      before: "Default threshold range",
-      after: value,
-    }))
 
-  if (thresholdDiffs.length > 0) {
+  if (activeThresholds.length > 0) {
     milestones.push({
       id: "thresholds-personalized",
       title: "Thresholds personalized",
+      description:
+        "CDS engine evaluated patient conditions and embedded personalized alert thresholds, each linked to the source rule that generated them.",
       timestamp: refreshedAt ?? patient.updated_at,
-      diffs: thresholdDiffs.slice(0, 4),
+      documentBefore: vitalsDoc,
+      documentAfter: thresholdsDoc,
     })
   }
 
-  return milestones.filter((milestone) => milestone.diffs.length > 0)
+  if (workflowState !== "not_started" || workflow?.follow_up_recommended || kedGap?.workflow_status) {
+    const kedBefore = { ...thresholdsDoc }
+    const kedAfter = buildWithKedWorkflowSnapshot(
+      thresholdsDoc, workflowState, kedGap, workflow,
+    )
+
+    milestones.push({
+      id: "ked-workflow-updated",
+      title: "KED workflow updated",
+      description:
+        "Kidney evaluation workflow state, evidence tracking, and care gap closure data embedded as the clinical workflow progressed.",
+      timestamp: workflowTimestamp,
+      documentBefore: kedBefore,
+      documentAfter: kedAfter,
+    })
+  }
+
+  const cdcHbaGap = getCdcHbaGap(careGaps)
+  const cdcHbaWorkflow = getCdcHbaWorkflow(patient as Patient360WithWorkflow)
+  const cdcHbaState = cdcHbaWorkflow?.status ?? cdcHbaGap?.workflow_status ?? "not_started"
+
+  if (cdcHbaState !== "not_started" || cdcHbaWorkflow?.follow_up_recommended || cdcHbaGap?.workflow_status) {
+    const cdcTimestamp =
+      cdcHbaWorkflow?.completed_at ??
+      cdcHbaWorkflow?.last_updated_at ??
+      cdcHbaWorkflow?.ordered_at ??
+      refreshedAt ??
+      patient.updated_at
+
+    const cdcBefore = { ...thresholdsDoc }
+    const cdcAfter = buildWithCdcHbaWorkflowSnapshot(
+      thresholdsDoc, cdcHbaState, cdcHbaGap, cdcHbaWorkflow,
+    )
+
+    milestones.push({
+      id: "cdc-hba-workflow-updated",
+      title: "CDC-HBA workflow updated",
+      description:
+        "HbA1c workflow state and evidence embedded alongside existing data, demonstrating the document's ability to grow with clinical activity.",
+      timestamp: cdcTimestamp,
+      documentBefore: cdcBefore,
+      documentAfter: cdcAfter,
+    })
+  }
+
+  return milestones
+}
+
+function fakeObjectId(patientId: string): string {
+  const num = patientId.replace(/\D/g, "") || "0"
+  return `65a1b2c3d4e5f6${num.padStart(10, "0")}`
+}
+
+function buildStubSnapshot(
+  patient: Patient360,
+  oid: string,
+): Record<string, unknown> {
+  return {
+    _id: `ObjectId('${oid}')`,
+    patient_id: patient.patient_id,
+    mrn: patient.mrn,
+    source_hospital: patient.source_hospital,
+    created_at: patient.created_at,
+  }
+}
+
+function buildPersonalizedSnapshot(
+  patient: Patient360,
+  oid: string,
+): Record<string, unknown> {
+  return {
+    _id: `ObjectId('${oid}')`,
+    patient_id: patient.patient_id,
+    mrn: patient.mrn,
+    source_hospital: patient.source_hospital,
+    hospital_name: patient.hospital_name,
+    profile_type: patient.profile_type,
+    demographics: {
+      name: patient.demographics.name,
+      given: patient.demographics.given,
+      family: patient.demographics.family,
+      gender: patient.demographics.gender,
+      birth_date: patient.demographics.birth_date,
+      age: patient.demographics.age,
+    },
+    conditions: patient.conditions.slice(0, 3).map((c) => ({
+      icd10: c.icd10,
+      display: c.display,
+      clinical_status: c.clinical_status,
+    })),
+    flags: {
+      has_beta_blocker: patient.flags.has_beta_blocker,
+      has_insulin: patient.flags.has_insulin,
+      has_ckd: patient.flags.has_ckd,
+      condition_codes: patient.flags.condition_codes.slice(0, 3),
+    },
+    created_at: patient.created_at,
+  }
+}
+
+function buildWithVitalsSnapshot(
+  patient: Patient360,
+  base: Record<string, unknown>,
+): Record<string, unknown> {
+  const { created_at, ...rest } = base
+  return {
+    ...rest,
+    vitals_summary: {
+      latest: {
+        heart_rate: patient.vitals_summary.latest.heart_rate,
+        respiratory_rate: patient.vitals_summary.latest.respiratory_rate,
+        temperature: patient.vitals_summary.latest.temperature,
+        spo2: patient.vitals_summary.latest.spo2,
+        activity_level: patient.vitals_summary.latest.activity_level,
+      },
+      trend_24h: patient.vitals_summary.trend_24h,
+      refreshed_at: patient.vitals_summary.refreshed_at,
+    },
+    created_at,
+  }
+}
+
+function buildWithThresholdsSnapshot(
+  patient: Patient360,
+  base: Record<string, unknown>,
+): Record<string, unknown> {
+  const { created_at, ...rest } = base
+  const thresholds: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(patient.personalized_thresholds)) {
+    if (value?.source_rule) {
+      thresholds[key] = { low: value.low, high: value.high, source_rule: value.source_rule }
+    }
+  }
+
+  if (Object.keys(thresholds).length === 0) return { ...base }
+
+  return {
+    ...rest,
+    personalized_thresholds: thresholds,
+    created_at,
+  }
+}
+
+function buildWithKedWorkflowSnapshot(
+  base: Record<string, unknown>,
+  workflowState: string,
+  kedGap: CareGap | null,
+  workflow: KedWorkflow | null,
+): Record<string, unknown> {
+  const { created_at, ...rest } = base
+  const kedWorkflow: Record<string, unknown> = {
+    status: workflowState,
+  }
+  if (workflow?.ordered_at) kedWorkflow.ordered_at = workflow.ordered_at
+  if (workflow?.completed_at) kedWorkflow.completed_at = workflow.completed_at
+  if (workflow?.required_evidence) kedWorkflow.required_evidence = workflow.required_evidence
+  if (workflow?.latest_result_ids?.length) kedWorkflow.latest_result_ids = workflow.latest_result_ids
+
+  const followUp = workflow?.follow_up_summary
+  if (followUp?.title) {
+    kedWorkflow.follow_up_summary = {
+      title: followUp.title,
+      summary: followUp.summary,
+      recommendations: followUp.recommendations,
+    }
+  }
+
+  const careGapEntry: Record<string, unknown> = {
+    hedis_measure: "KED",
+    status: kedGap?.status ?? "open",
+    workflow_status: kedGap?.workflow_status ?? workflowState,
+  }
+  if (kedGap?.closure_evidence) {
+    careGapEntry.closure_evidence = {
+      required: kedGap.closure_evidence.required,
+      received: kedGap.closure_evidence.received,
+      missing: kedGap.closure_evidence.missing,
+    }
+  }
+
+  return {
+    ...rest,
+    interventions: { ked_workflow: kedWorkflow },
+    care_gaps: [careGapEntry],
+    created_at,
+  }
+}
+
+function buildWithCdcHbaWorkflowSnapshot(
+  base: Record<string, unknown>,
+  workflowState: string,
+  cdcGap: CareGap | null,
+  workflow: KedWorkflow | null,
+): Record<string, unknown> {
+  const { created_at, ...rest } = base
+  const cdcWorkflow: Record<string, unknown> = {
+    status: workflowState,
+  }
+  if (workflow?.ordered_at) cdcWorkflow.ordered_at = workflow.ordered_at
+  if (workflow?.completed_at) cdcWorkflow.completed_at = workflow.completed_at
+  if (workflow?.required_evidence) cdcWorkflow.required_evidence = workflow.required_evidence
+  if (workflow?.latest_result_ids?.length) cdcWorkflow.latest_result_ids = workflow.latest_result_ids
+
+  const followUp = workflow?.follow_up_summary
+  if (followUp?.title) {
+    cdcWorkflow.follow_up_summary = {
+      title: followUp.title,
+      summary: followUp.summary,
+      recommendations: followUp.recommendations,
+    }
+  }
+
+  const careGapEntry: Record<string, unknown> = {
+    hedis_measure: "CDC-HBA",
+    status: cdcGap?.status ?? "open",
+    workflow_status: cdcGap?.workflow_status ?? workflowState,
+  }
+  if (cdcGap?.closure_evidence) {
+    careGapEntry.closure_evidence = {
+      required: cdcGap.closure_evidence.required,
+      received: cdcGap.closure_evidence.received,
+      missing: cdcGap.closure_evidence.missing,
+    }
+  }
+
+  return {
+    ...rest,
+    interventions: { cdc_hba_workflow: cdcWorkflow },
+    care_gaps: [careGapEntry],
+    created_at,
+  }
 }
 
 function sortEvents(events: MongoActivityEvent[]) {
@@ -455,6 +626,14 @@ function getKedWorkflow(patient: Patient360WithWorkflow) {
 
 function getKedGap(careGaps: CareGap[]) {
   return careGaps.find((gap) => gap.hedis_measure === "KED") ?? null
+}
+
+function getCdcHbaGap(careGaps: CareGap[]) {
+  return careGaps.find((gap) => gap.hedis_measure === "CDC-HBA") ?? null
+}
+
+function getCdcHbaWorkflow(patient: Patient360WithWorkflow) {
+  return patient.interventions?.cdc_hba_workflow ?? null
 }
 
 function normalizeWorkflowStatus(value: unknown) {

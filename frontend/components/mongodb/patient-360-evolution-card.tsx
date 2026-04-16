@@ -3,7 +3,7 @@
 import * as React from "react"
 import { ArrowRight, GitBranch } from "lucide-react"
 
-import { FieldDiffList } from "@/components/mongodb/field-diff-list"
+import { DocumentSnapshotDiff } from "@/components/mongodb/document-snapshot-diff"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -43,18 +43,18 @@ export function Patient360EvolutionCard({
     [alerts, careGaps, lastRefreshedAt, patient, workflowStatus],
   )
 
-  const [selectedId, setSelectedId] = React.useState<string | null>(milestones.at(-1)?.id ?? null)
+  const [selectedId, setSelectedId] = React.useState<string | null>(milestones.at(0)?.id ?? null)
 
   React.useEffect(() => {
     setSelectedId((current) => {
       if (!milestones.length) return null
       if (current && milestones.some((milestone) => milestone.id === current)) return current
-      return milestones.at(-1)?.id ?? null
+      return milestones.at(0)?.id ?? null
     })
   }, [milestones])
 
   const selectedMilestone =
-    milestones.find((milestone) => milestone.id === selectedId) ?? milestones.at(-1) ?? null
+    milestones.find((milestone) => milestone.id === selectedId) ?? milestones.at(0) ?? null
 
   return (
     <Card>
@@ -77,7 +77,7 @@ export function Patient360EvolutionCard({
           </div>
         ) : (
           <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
-            <ScrollArea className="max-h-[24rem] rounded-lg border bg-muted/15">
+            <ScrollArea className="max-h-[28rem] rounded-lg border bg-muted/15">
               <div className="space-y-2 p-3">
                 {milestones.map((milestone) => (
                   <MilestoneButton
@@ -98,17 +98,19 @@ export function Patient360EvolutionCard({
                       <GitBranch className="h-4 w-4 text-muted-foreground" />
                       <p className="text-sm font-medium">{selectedMilestone.title}</p>
                     </div>
-                    <Badge variant="secondary">
-                      {selectedMilestone.diffs.length} changed{" "}
-                      {selectedMilestone.diffs.length === 1 ? "field" : "fields"}
-                    </Badge>
+                    <p className="text-xs text-muted-foreground">
+                      {formatMongoTimestamp(selectedMilestone.timestamp)}
+                    </p>
                   </div>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    {formatMongoTimestamp(selectedMilestone.timestamp)}
+                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                    {selectedMilestone.description}
                   </p>
                 </div>
 
-                <FieldDiffList diffs={selectedMilestone.diffs} />
+                <DocumentSnapshotDiff
+                  before={selectedMilestone.documentBefore}
+                  after={selectedMilestone.documentAfter}
+                />
               </div>
             ) : null}
           </div>

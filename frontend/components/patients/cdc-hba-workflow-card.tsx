@@ -121,6 +121,8 @@ export function CdcHbaWorkflowCard({
       setWorkflow((prev) => (prev ? { ...prev, follow_up_summary: summary } : prev))
       toast.success("Follow-up summary generated")
       await loadWorkflow()
+      onWorkflowUpdated()
+      bumpDataVersion()
     } catch (err) {
       toast.error("Failed to generate summary", {
         description: err instanceof Error ? err.message : undefined,

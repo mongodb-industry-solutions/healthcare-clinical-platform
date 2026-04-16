@@ -261,7 +261,10 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
       />
 
       {/* ---- MongoDB Insights dialog ---- */}
-      <Dialog open={showDataModelDialog} onOpenChange={setShowDataModelDialog}>
+      <Dialog open={showDataModelDialog} onOpenChange={(open) => {
+        setShowDataModelDialog(open)
+        if (open) reloadPatientData()
+      }}>
         <DialogContent className="max-h-[90vh] overflow-hidden p-0 sm:max-w-5xl">
           <div className="flex max-h-[90vh] flex-col">
             <DialogHeader className="border-b px-6 py-5">
