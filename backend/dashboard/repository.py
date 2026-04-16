@@ -51,12 +51,13 @@ class DashboardRepository:
         total = collection.count_documents(query)
 
         sort_spec = self._build_sort_spec(sort_by)
-        docs = list(
-            collection.find(query, {"_id": 0})
+        docs = [
+            self._db.strip_qe_metadata(d)
+            for d in collection.find(query, {"_id": 0, "__safeContent__": 0})
             .sort(sort_spec)
             .skip(skip)
             .limit(limit)
-        )
+        ]
         return docs, total
 
     @staticmethod
@@ -74,9 +75,10 @@ class DashboardRepository:
 
     def get_patient_360(self, patient_id: str) -> Optional[dict[str, Any]]:
         """Fetch a single Patient 360 document."""
-        return self._db.get_collection(PATIENT_360_COLLECTION).find_one(
+        doc = self._db.get_collection(PATIENT_360_COLLECTION).find_one(
             {"patient_id": patient_id}, {"_id": 0},
         )
+        return self._db.strip_qe_metadata(doc)
 
     def get_patient_fhir_bundle(self, patient_id: str) -> Optional[dict[str, Any]]:
         """Fetch the raw FHIR bundle wrapper document for a patient."""
@@ -220,9 +222,10 @@ class DashboardRepository:
                 },
             },
             {"$limit": limit},
-            {"$project": {"_id": 0}},
+            {"$project": {"_id": 0, "__safeContent__": 0}},
         ]
 
-        return list(
-            self._db.get_collection(PATIENT_360_COLLECTION).aggregate(pipeline)
-        )
+        return [
+            self._db.strip_qe_metadata(d)
+            for d in self._db.get_collection(PATIENT_360_COLLECTION).aggregate(pipeline)
+        ]

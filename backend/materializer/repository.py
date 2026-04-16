@@ -97,9 +97,10 @@ class MaterializerRepository:
 
     def get_patient_360(self, patient_id: str) -> Optional[dict[str, Any]]:
         """Fetch a single patient_360 document."""
-        return self._db.get_collection(PATIENT_360_COLLECTION).find_one(
+        doc = self._db.get_collection(PATIENT_360_COLLECTION).find_one(
             {"patient_id": patient_id}, {"_id": 0}
         )
+        return self._db.strip_qe_metadata(doc)
 
     _SEVERITY_SCORE_MAP = {"critical": 4, "high": 3, "moderate": 2, "low": 1}
 
@@ -152,17 +153,18 @@ class MaterializerRepository:
                 {"$sort": {"_max_sev": -1, "_alert_count": -1}},
                 {"$skip": skip},
                 {"$limit": limit},
-                {"$project": {"_id": 0, "_max_sev": 0, "_alert_count": 0}},
+                {"$project": {"_id": 0, "_max_sev": 0, "_alert_count": 0, "__safeContent__": 0}},
             ])
-            return list(collection.aggregate(pipeline))
+            return [self._db.strip_qe_metadata(d) for d in collection.aggregate(pipeline)]
 
         sort_spec = self._build_sort_spec(sort_by)
-        return list(
-            collection.find(match, {"_id": 0})
+        return [
+            self._db.strip_qe_metadata(d)
+            for d in collection.find(match, {"_id": 0, "__safeContent__": 0})
             .sort(sort_spec)
             .skip(skip)
             .limit(limit)
-        )
+        ]
 
     @staticmethod
     def _build_sort_spec(sort_by: str) -> list[tuple[str, int]]:
@@ -195,12 +197,20 @@ class MaterializerRepository:
     def set_simulation_pattern(
         self, patient_ids: list[str], pattern: str,
     ) -> int:
-        """Set simulation_pattern on patient_360 documents for the given IDs."""
-        result = self._db.get_collection(PATIENT_360_COLLECTION).update_many(
-            {"patient_id": {"$in": patient_ids}},
-            {"$set": {"simulation_pattern": pattern}},
-        )
-        return result.modified_count
+        """Set simulation_pattern on patient_360 documents for the given IDs.
+
+        Uses individual update_one calls because Queryable Encryption
+        does not support multi-document updates.
+        """
+        collection = self._db.get_collection(PATIENT_360_COLLECTION)
+        modified = 0
+        for pid in patient_ids:
+            result = collection.update_one(
+                {"patient_id": pid},
+                {"$set": {"simulation_pattern": pattern}},
+            )
+            modified += result.modified_count
+        return modified
 
     def count_patient_360(self) -> int:
         """Count patient_360 documents."""

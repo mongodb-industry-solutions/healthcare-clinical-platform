@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from cds.models import (
     ComputeCareGapsRequest,
@@ -36,12 +36,11 @@ from cds.models import (
 )
 from cds.repository import CDSRepository
 from cds.service import CDSService
-from db.mdb import MongoDBConnector
 
 
-def get_cds_service() -> CDSService:
-    """FastAPI dependency — constructs the full service + repo stack."""
-    return CDSService(CDSRepository(MongoDBConnector()))
+def get_cds_service(request: Request) -> CDSService:
+    """FastAPI dependency — uses the shared (possibly encrypted) DB connector."""
+    return CDSService(CDSRepository(request.app.state.db))
 
 
 router = APIRouter(prefix="/cds", tags=["CDS & HEDIS Engine"])

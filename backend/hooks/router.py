@@ -11,9 +11,8 @@ Prefix: /hooks
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
-from db.mdb import MongoDBConnector
 from hooks.models import (
     CDSDiscoveryResponse,
     CDSHooksRequest,
@@ -24,9 +23,9 @@ from hooks.repository import HooksRepository
 from hooks.service import HooksService
 
 
-def get_hooks_service() -> HooksService:
-    """FastAPI dependency — constructs the full service + repo stack."""
-    return HooksService(HooksRepository(MongoDBConnector()))
+def get_hooks_service(request: Request) -> HooksService:
+    """FastAPI dependency — uses the shared (possibly encrypted) DB connector."""
+    return HooksService(HooksRepository(request.app.state.db))
 
 
 router = APIRouter(prefix="/hooks", tags=["CDS Hooks (DaVinci)"])

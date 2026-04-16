@@ -33,9 +33,10 @@ class InterventionRepository:
 
     def get_patient_360(self, patient_id: str) -> Optional[dict[str, Any]]:
         """Fetch a full Patient 360 document."""
-        return self._db.get_collection(PATIENT_360_COLLECTION).find_one(
+        doc = self._db.get_collection(PATIENT_360_COLLECTION).find_one(
             {"patient_id": patient_id}, {"_id": 0},
         )
+        return self._db.strip_qe_metadata(doc)
 
     def get_ked_gap(self, patient_id: str) -> Optional[dict[str, Any]]:
         """Return the KED care gap entry from a patient's care_gaps array."""

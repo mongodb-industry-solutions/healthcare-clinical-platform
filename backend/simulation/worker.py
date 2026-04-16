@@ -18,8 +18,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from pymongo import UpdateOne
-
 from cds.repository import CDSRepository
 from cds.service import CDSService
 from db.mdb import MongoDBConnector
@@ -197,6 +195,13 @@ class SimulationWorker:
                 await asyncio.sleep(self._interval)
         except asyncio.CancelledError:
             raise
+        except Exception:
+            logger.exception("Simulation loop crashed at tick %d", self._tick_count)
+            self._push_event("stopped", {
+                "reason": "error",
+                "tick_count": self._tick_count,
+                "message": "Simulation crashed unexpectedly — check server logs.",
+            })
 
     async def _run_cds_loop(self) -> None:
         loop = asyncio.get_running_loop()
@@ -234,7 +239,7 @@ class SimulationWorker:
         p360_coll = self._db.get_collection(PATIENT_360_COLLECTION)
 
         new_readings: list[dict[str, Any]] = []
-        p360_updates: list[UpdateOne] = []
+        p360_updates: list[tuple[dict, dict]] = []
         breached_pids: list[str] = []
         generation_started_at = time.perf_counter()
 
@@ -262,7 +267,7 @@ class SimulationWorker:
                 "activity_level": reading["activity_level"],
                 "timestamp": now.isoformat(),
             }
-            p360_updates.append(UpdateOne(
+            p360_updates.append((
                 {"patient_id": pid},
                 {"$set": {
                     "vitals_summary.latest": latest_snapshot,
@@ -285,7 +290,8 @@ class SimulationWorker:
         p360_update_ms = 0.0
         if p360_updates:
             p360_update_started_at = time.perf_counter()
-            p360_coll.bulk_write(p360_updates, ordered=False)
+            for filt, update in p360_updates:
+                p360_coll.update_one(filt, update)
             p360_update_ms = (time.perf_counter() - p360_update_started_at) * 1000
 
         cds_queued = 0
@@ -311,7 +317,7 @@ class SimulationWorker:
         total_ms = (time.perf_counter() - tick_started_at) * 1000
         logger.info(
             "Simulation tick %d timing | patients=%d readings=%d breached=%d cds_queued=%d cds_pending=%d "
-            "generate=%.1fms insert_many=%.1fms bulk_write=%.1fms total=%.1fms",
+            "generate=%.1fms insert_many=%.1fms p360_updates=%.1fms total=%.1fms",
             self._tick_count,
             len(self._patients),
             len(new_readings),

@@ -691,3 +691,42 @@ export async function setSimulationPattern(
     body: JSON.stringify({ patient_ids: patientIds, pattern }),
   })
 }
+
+// ---------------------------------------------------------------------------
+// Queryable Encryption
+// ---------------------------------------------------------------------------
+
+export interface EncryptedFieldInfo {
+  path: string
+  queryable: boolean
+  query_type: string | null
+}
+
+export interface HipaaMapping {
+  field: string
+  regulation: string
+  category: string
+}
+
+export interface EncryptionStatusResponse {
+  qe_enabled: boolean
+  kms_provider: string
+  encrypted_collection: string
+  encrypted_fields: EncryptedFieldInfo[]
+  hipaa_mapping: HipaaMapping[]
+}
+
+export interface ServerViewResponse {
+  raw_document: Record<string, unknown>
+  encrypted_field_paths: string[]
+}
+
+export async function fetchEncryptionStatus(): Promise<EncryptionStatusResponse> {
+  return apiFetch("/encryption/status")
+}
+
+export async function fetchEncryptionServerView(
+  patientId: string,
+): Promise<ServerViewResponse> {
+  return apiFetch(`/encryption/server-view/${patientId}`)
+}

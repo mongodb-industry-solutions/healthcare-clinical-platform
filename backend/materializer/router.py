@@ -19,10 +19,9 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
-from db.mdb import MongoDBConnector
 from materializer.models import (
     MaterializeAllRequest,
     MaterializeAllResponse,
@@ -32,9 +31,9 @@ from materializer.repository import MaterializerRepository
 from materializer.service import MaterializerService
 
 
-def get_materializer_service() -> MaterializerService:
-    """FastAPI dependency — constructs the full service + repo stack."""
-    return MaterializerService(MaterializerRepository(MongoDBConnector()))
+def get_materializer_service(request: Request) -> MaterializerService:
+    """FastAPI dependency — uses the shared (possibly encrypted) DB connector."""
+    return MaterializerService(MaterializerRepository(request.app.state.db))
 
 
 router = APIRouter(prefix="/materializer", tags=["Patient 360 Materializer"])

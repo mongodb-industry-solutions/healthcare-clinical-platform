@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from dashboard.models import (
     LongitudinalResponse,
@@ -27,12 +27,11 @@ from dashboard.models import (
 )
 from dashboard.repository import DashboardRepository
 from dashboard.service import DashboardService
-from db.mdb import MongoDBConnector
 
 
-def get_dashboard_service() -> DashboardService:
-    """FastAPI dependency — constructs the full service + repo stack."""
-    return DashboardService(DashboardRepository(MongoDBConnector()))
+def get_dashboard_service(request: Request) -> DashboardService:
+    """FastAPI dependency — uses the shared (possibly encrypted) DB connector."""
+    return DashboardService(DashboardRepository(request.app.state.db))
 
 
 router = APIRouter(prefix="/dashboard", tags=["Clinician Dashboard"])

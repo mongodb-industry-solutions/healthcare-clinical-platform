@@ -9,6 +9,7 @@ import {
   Database,
   GitBranch,
   Activity as ActivityIcon,
+  ShieldCheck,
 } from "lucide-react"
 import Link from "next/link"
 
@@ -36,6 +37,7 @@ import { type Patient360, type VitalsTimeSeries } from "@/lib/mock-data"
 import { DataModelToggleCard } from "@/components/mongodb/data-model-toggle-card"
 import { MongodbActivityPanel } from "@/components/mongodb/mongodb-activity-panel"
 import { Patient360EvolutionCard } from "@/components/mongodb/patient-360-evolution-card"
+import { EncryptionComplianceCard } from "@/components/mongodb/encryption-compliance-card"
 import { type ChartAnnotation } from "@/components/patients/vitals-chart"
 
 import { PatientIdentityBar } from "./patient-identity-bar"
@@ -271,7 +273,7 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
             </DialogHeader>
             <div className="overflow-auto px-6 py-5">
               <Tabs defaultValue="data-model" className="gap-4">
-                <TabsList className="grid h-auto w-full grid-cols-1 gap-2 rounded-xl border border-[#0f5f3d]/15 bg-[#0f5f3d]/5 p-1.5 md:grid-cols-3">
+                <TabsList className="grid h-auto w-full grid-cols-1 gap-2 rounded-xl border border-[#0f5f3d]/15 bg-[#0f5f3d]/5 p-1.5 md:grid-cols-4">
                   <TabsTrigger
                     value="data-model"
                     className="h-11 rounded-lg px-4 text-sm font-medium data-[state=active]:border-[#0f5f3d] data-[state=active]:bg-[#0f5f3d] data-[state=active]:text-white data-[state=active]:shadow-sm"
@@ -292,6 +294,13 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
                   >
                     <GitBranch className="h-4 w-4" />
                     Patient 360 Evolution
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="encryption-compliance"
+                    className="h-11 rounded-lg px-4 text-sm font-medium data-[state=active]:border-[#0f5f3d] data-[state=active]:bg-[#0f5f3d] data-[state=active]:text-white data-[state=active]:shadow-sm"
+                  >
+                    <ShieldCheck className="h-4 w-4" />
+                    Encryption &amp; Compliance
                   </TabsTrigger>
                 </TabsList>
 
@@ -326,6 +335,13 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
                     alerts={active_alerts}
                     workflowStatus={patient.interventions?.ked_workflow ?? null}
                     lastRefreshedAt={vitals_summary?.refreshed_at ?? null}
+                  />
+                </TabsContent>
+
+                <TabsContent value="encryption-compliance" className="pt-2">
+                  <EncryptionComplianceCard
+                    patientId={patientId}
+                    patient360={patient}
                   />
                 </TabsContent>
               </Tabs>

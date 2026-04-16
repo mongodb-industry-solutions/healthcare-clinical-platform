@@ -23,7 +23,7 @@ POST   /interventions/cdc-hba/{patient_id}/follow-up-summary Generate CDC-HBA fo
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from interventions.models import (
     CdcHbaWorkflowStatusResponse,
@@ -45,12 +45,11 @@ from interventions.repository import InterventionRepository
 from interventions.service import InterventionService
 from cds.repository import CDSRepository
 from cds.service import CDSService
-from db.mdb import MongoDBConnector
 
 
-def get_intervention_service() -> InterventionService:
-    """FastAPI dependency — constructs the full service + repo stack."""
-    db = MongoDBConnector()
+def get_intervention_service(request: Request) -> InterventionService:
+    """FastAPI dependency — uses the shared (possibly encrypted) DB connector."""
+    db = request.app.state.db
     return InterventionService(
         repo=InterventionRepository(db),
         cds_service=CDSService(CDSRepository(db)),
