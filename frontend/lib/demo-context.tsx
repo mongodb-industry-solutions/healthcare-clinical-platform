@@ -44,10 +44,10 @@ export interface SeedConfig {
 
 export const DEFAULT_SEED_CONFIG: SeedConfig = {
   batches: [
-    { profile_type: "target", count: 2, vitals_pattern: "deteriorating" },
+    { profile_type: "target", count: 3, vitals_pattern: "deteriorating" },
     { profile_type: "cardiac", count: 2, vitals_pattern: "deteriorating" },
     { profile_type: "diabetic", count: 2, vitals_pattern: "deteriorating" },
-    { profile_type: "healthy", count: 3, vitals_pattern: "normal" },
+    { profile_type: "healthy", count: 1, vitals_pattern: "normal" },
   ],
   vitals_hours: 24,
   vitals_interval_minutes: 5,
