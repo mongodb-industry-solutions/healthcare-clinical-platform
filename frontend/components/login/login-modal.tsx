@@ -31,6 +31,7 @@ import {
   generateVitals,
   materializePatient,
   seedCdsRules,
+  seedAttributions,
   computeThresholds,
   evaluatePatientCds,
   computePatientCareGaps,
@@ -473,6 +474,7 @@ const PIPELINE_STEPS = [
   "Computing personalized thresholds",
   "Evaluating CDS rules (generating alerts)",
   "Computing HEDIS care gaps",
+  "Seeding provider attributions",
   "Starting real-time monitoring",
 ]
 
@@ -546,7 +548,7 @@ async function runSeedPipeline(
     detail: string
   }) => void,
 ) {
-  const total = 8
+  const total = 9
   const progress = (step: number, label: string, detail = "") =>
     onProgress({ currentStep: step, totalSteps: total, stepLabel: label, detail })
 
@@ -612,8 +614,12 @@ async function runSeedPipeline(
     await computePatientCareGaps(pid)
   }
 
-  // 8. Set simulation patterns per batch and start real-time monitoring
-  progress(8, "Starting monitoring", "Launching simulation worker…")
+  // 8. Seed provider attributions
+  progress(8, "Seeding attributions", "Provider-patient relationships…")
+  await seedAttributions()
+
+  // 9. Set simulation patterns per batch and start real-time monitoring
+  progress(9, "Starting monitoring", "Launching simulation worker…")
   for (const batch of config.batches) {
     if (batch.count === 0) continue
     const batchPids = allPatientIds.filter((pid) => patientProfiles[pid] === batch.profile_type)
@@ -624,8 +630,8 @@ async function runSeedPipeline(
   await startSimulation({ interval_seconds: 3 })
 
   onProgress({
-    currentStep: 8,
-    totalSteps: 8,
+    currentStep: 9,
+    totalSteps: 9,
     stepLabel: "Complete",
     detail: "Demo ready — live monitoring active!",
   })

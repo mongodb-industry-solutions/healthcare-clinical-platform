@@ -1,3 +1,5 @@
+import type { CareGap, CareGapResultEvaluationComponent } from "@/lib/mock-data"
+
 export type CareGapMeasureMeta = {
   name: string
   description: string
@@ -52,4 +54,43 @@ export function getCareGapMeasureDashboardLabel(measure: string) {
 
 export function getCareGapMeasureActionLabel(measure: string) {
   return CARE_GAP_MEASURE_META[measure]?.actionLabel ?? `Advance ${measure} gap closure workflow`
+}
+
+/**
+ * Care gap UI state, derived from the raw status + the optional result
+ * evaluation. Centralized so future Tier 2 states (e.g. `due_soon`) land in
+ * one place rather than being scattered across components.
+ *
+ * - `open`               — screening overdue or never performed
+ * - `closed_controlled`  — screening done and result at target
+ * - `closed_uncontrolled` — screening done but result NOT at target ("Closed — flagged")
+ */
+export type EffectiveGapState =
+  | "open"
+  | "closed_controlled"
+  | "closed_uncontrolled"
+
+export function getEffectiveGapState(gap: CareGap): EffectiveGapState {
+  if (gap.status === "open") return "open"
+  if (gap.result_evaluation && gap.result_evaluation.controlled === false) {
+    return "closed_uncontrolled"
+  }
+  return "closed_controlled"
+}
+
+const COMPARATOR_LABEL: Record<CareGapResultEvaluationComponent["comparator"], string> = {
+  lt: "<",
+  lte: "≤",
+  gt: ">",
+  gte: "≥",
+}
+
+/** Render a single result-evaluation component as a one-line summary. */
+export function formatGapResultComponent(
+  component: CareGapResultEvaluationComponent,
+): string {
+  const unit = component.unit ?? ""
+  const value = component.value !== null ? component.value : "—"
+  const target = `${COMPARATOR_LABEL[component.comparator]} ${component.target}${unit ? ` ${unit}` : ""}`
+  return `${component.label} ${value}${unit ? ` ${unit}` : ""} (target ${target})`
 }

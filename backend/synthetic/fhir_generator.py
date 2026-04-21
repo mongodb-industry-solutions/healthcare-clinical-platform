@@ -192,6 +192,65 @@ LAB_CATALOGUE: list[dict[str, Any]] = [
 ]
 
 # ---------------------------------------------------------------------------
+# Condition → required lab LOINCs
+#
+# Ensures every materialized patient has the labs their conditions actually
+# require, so HEDIS care-gap evaluations reflect clinical reality rather than
+# RNG. Without this, a T2DM+CKD patient could end up missing HbA1c, eGFR, or
+# uACR — and a "gap" would fire because the simulator never generated the
+# evidence, not because the patient is overdue.
+# ---------------------------------------------------------------------------
+
+REQUIRED_LABS_BY_CONDITION: dict[str, list[str]] = {
+    "44054006": ["4548-4", "1558-6"],     # T2DM       → HbA1c, fasting glucose
+    "433144002": ["62238-1", "14959-1"],  # CKD3       → eGFR, uACR
+    "59621000": ["2823-3"],               # HTN        → potassium (ACE/ARB monitoring)
+    "42343007": ["718-7", "10839-9"],     # CHF        → hemoglobin, troponin
+    "13645005": ["2019-8"],               # COPD       → arterial CO2
+    "49436004": [],                       # A-fib      — no required lab
+    "230572002": [],                      # Neuropathy — no required lab
+}
+
+# T2DM patients aged 40-75 should also have a cholesterol observation so the
+# SPD measure can evaluate result-based statin eligibility.
+SPD_CHOLESTEROL_LOINC = "2093-3"
+SPD_AGE_RANGE = (40, 75)
+
+# ---------------------------------------------------------------------------
+# Lab effective-date distribution
+#
+# A realistic demo population needs a mix of in-period, borderline, and
+# overdue labs so the dashboard population view shows real variation rather
+# than every patient being uniformly closed or uniformly overdue.
+#
+# Buckets are offsets in days from "now":
+#   recent      0–60 days    (gap will be closed)
+#   borderline  90–250 days  (in HEDIS annual window, past the 180-day HbA1c
+#                             window — drives the population mix)
+#   overdue     370–540 days (gap will be open)
+#
+# Distribution is keyed by profile so the "target" demo patient (Maria) still
+# has visibly open gaps while the broader panel looks heterogeneous.
+# ---------------------------------------------------------------------------
+
+_LAB_DATE_BUCKETS = {
+    "recent":     (0, 60),
+    "borderline": (90, 250),
+    "overdue":    (370, 540),
+}
+
+_LAB_DATE_DISTRIBUTIONS: dict[str, list[tuple[str, float]]] = {
+    PROFILE_TARGET:   [("recent", 0.25), ("borderline", 0.60), ("overdue", 1.00)],
+    PROFILE_DIABETIC: [("recent", 0.40), ("borderline", 0.75), ("overdue", 1.00)],
+    PROFILE_CARDIAC:  [("recent", 0.50), ("borderline", 0.80), ("overdue", 1.00)],
+    PROFILE_HEALTHY:  [("recent", 1.00)],
+}
+
+# Top-up (non-required) labs always look recent — they represent the routine
+# panel a clinician would see in the most recent encounter.
+_TOP_UP_DATE_BUCKET = "recent"
+
+# ---------------------------------------------------------------------------
 # Allergy catalogue
 # ---------------------------------------------------------------------------
 
@@ -399,7 +458,11 @@ class FHIRPatientGenerator:
 
         conditions = self._pick_conditions(profile_type)
         meds       = self._pick_medications(conditions, profile_type)
-        labs       = self._generate_labs(profile_type)
+        labs       = self._generate_labs(
+            profile_type,
+            condition_codes=[c["snomed"] for c in conditions],
+            age=age,
+        )
         allergies  = self._maybe_add_allergies()
         encounter  = self._generate_encounter(patient_id)
         note       = self._generate_note(age, gender, conditions, meds)
@@ -605,7 +668,7 @@ class FHIRPatientGenerator:
                     "text": lab["display"],
                 },
                 "subject": {"reference": f"Patient/{patient_id}"},
-                "effectiveDateTime": (
+                "effectiveDateTime": lab.get("effective_date") or (
                     datetime.now(timezone.utc) - timedelta(hours=self.rng.randint(1, 72))
                 ).isoformat(),
                 "valueQuantity": {
@@ -855,35 +918,146 @@ class FHIRPatientGenerator:
                     meds.append(med)
         return meds
 
-    def _generate_labs(self, profile_type: str = PROFILE_TARGET) -> list[dict]:
-        """Healthy patients get fewer labs and near-normal values; others get the full set."""
+    def _generate_labs(
+        self,
+        profile_type: str = PROFILE_TARGET,
+        condition_codes: list[str] | None = None,
+        age: int | None = None,
+    ) -> list[dict]:
+        """Generate a patient's lab panel.
+
+        Required-then-top-up pipeline:
+          1. Resolve required LOINCs from condition_codes (T2DM → HbA1c, etc.).
+          2. Emit each required lab with a clinically reasonable value and a
+             per-lab effective_date drawn from the profile's date distribution.
+          3. Top up with random labs from the rest of the catalogue, matching
+             the legacy panel size, all dated as "recent".
+
+        Each returned lab carries an `effective_date` (ISO 8601 string) so
+        `_build_bundle` can stamp the FHIR Observation correctly and the
+        materializer/quality engine can evaluate gap freshness per measure.
+        """
+        codes = set(condition_codes or [])
+
         if profile_type == PROFILE_HEALTHY:
-            # Only a basic metabolic panel — all normal
+            # Only a basic metabolic panel — all normal, all recent
             basic = [l for l in LAB_CATALOGUE if l["loinc"] in ("2947-0", "2823-3", "2160-0")]
             return [
-                {**lab, "value": round(self.rng.uniform(lab["low"], lab["high"]), 2),
-                 "ref_low": lab["low"], "ref_high": lab["high"], "interpretation": "N"}
+                self._build_lab_entry(lab, abnormal=False, profile_type=profile_type, is_required=True)
                 for lab in basic
             ]
 
-        # All other profiles — standard abnormality logic
-        n = self.rng.randint(4, 8) if profile_type != PROFILE_TARGET else self.rng.randint(6, 10)
-        selected = self.rng.sample(LAB_CATALOGUE, min(n, len(LAB_CATALOGUE)))
-        labs = []
-        for lab in selected:
-            abnormal = self.rng.random() < 0.30
-            if abnormal:
-                value = round(self.rng.uniform(*lab["abnormal_range"]), 2)
-                interpretation = "H" if value > lab["high"] else "L"
-            else:
-                value = round(self.rng.uniform(lab["low"], lab["high"]), 2)
-                interpretation = "N"
+        required_loincs = self._resolve_required_loincs(codes, age, profile_type)
+        catalogue_by_loinc = {l["loinc"]: l for l in LAB_CATALOGUE}
+
+        labs: list[dict] = []
+        emitted: set[str] = set()
+
+        # 1. Required labs first — higher abnormal rate so condition-correlated
+        #    measures (HbA1c, eGFR, uACR) actually exercise the result-based
+        #    evaluation path in the quality engine.
+        for loinc in required_loincs:
+            lab_def = catalogue_by_loinc.get(loinc)
+            if lab_def is None:
+                continue
+            abnormal = self.rng.random() < 0.45
             labs.append(
-                {**lab, "value": value,
-                 "ref_low": lab["low"], "ref_high": lab["high"],
-                 "interpretation": interpretation}
+                self._build_lab_entry(lab_def, abnormal=abnormal, profile_type=profile_type, is_required=True)
             )
+            emitted.add(loinc)
+
+        # 2. Top up with random labs to keep the panel realistic in size.
+        target_size = self.rng.randint(6, 10) if profile_type == PROFILE_TARGET else self.rng.randint(4, 8)
+        remaining_budget = max(0, target_size - len(labs))
+        candidates = [l for l in LAB_CATALOGUE if l["loinc"] not in emitted]
+        if remaining_budget and candidates:
+            sampled = self.rng.sample(candidates, min(remaining_budget, len(candidates)))
+            for lab_def in sampled:
+                abnormal = self.rng.random() < 0.30
+                labs.append(
+                    self._build_lab_entry(lab_def, abnormal=abnormal, profile_type=profile_type, is_required=False)
+                )
+
         return labs
+
+    def _resolve_required_loincs(
+        self,
+        condition_codes: set[str],
+        age: int | None,
+        profile_type: str,
+    ) -> list[str]:
+        """Resolve the LOINC list a patient must have given their conditions."""
+        required: list[str] = []
+        seen: set[str] = set()
+        for snomed in condition_codes:
+            for loinc in REQUIRED_LABS_BY_CONDITION.get(snomed, []):
+                if loinc not in seen:
+                    seen.add(loinc)
+                    required.append(loinc)
+
+        # SPD: T2DM patients aged 40-75 need a cholesterol panel so the
+        # quality engine can evaluate statin-eligibility downstream.
+        if "44054006" in condition_codes and age is not None:
+            lo, hi = SPD_AGE_RANGE
+            if lo <= age <= hi and SPD_CHOLESTEROL_LOINC not in seen:
+                seen.add(SPD_CHOLESTEROL_LOINC)
+                required.append(SPD_CHOLESTEROL_LOINC)
+
+        return required
+
+    def _build_lab_entry(
+        self,
+        lab_def: dict,
+        *,
+        abnormal: bool,
+        profile_type: str,
+        is_required: bool,
+    ) -> dict:
+        """Materialize a single lab dict including value, interpretation, and date."""
+        if abnormal:
+            value = round(self.rng.uniform(*lab_def["abnormal_range"]), 2)
+            interpretation = "H" if value > lab_def["high"] else "L"
+        else:
+            value = round(self.rng.uniform(lab_def["low"], lab_def["high"]), 2)
+            interpretation = "N"
+
+        effective_date = self._pick_lab_effective_date(profile_type, is_required=is_required)
+
+        return {
+            **lab_def,
+            "value": value,
+            "ref_low": lab_def["low"],
+            "ref_high": lab_def["high"],
+            "interpretation": interpretation,
+            "effective_date": effective_date,
+        }
+
+    def _pick_lab_effective_date(self, profile_type: str, *, is_required: bool) -> str:
+        """Choose an ISO timestamp for a lab observation.
+
+        Required labs follow the profile's bucket distribution (so target
+        patients still have visibly overdue gaps). Top-up labs are always
+        recent — they represent the most recent encounter panel.
+        """
+        if not is_required:
+            bucket = _TOP_UP_DATE_BUCKET
+        else:
+            distribution = _LAB_DATE_DISTRIBUTIONS.get(
+                profile_type, _LAB_DATE_DISTRIBUTIONS[PROFILE_DIABETIC]
+            )
+            r = self.rng.random()
+            bucket = distribution[-1][0]
+            for name, threshold in distribution:
+                if r <= threshold:
+                    bucket = name
+                    break
+
+        low_days, high_days = _LAB_DATE_BUCKETS[bucket]
+        days_ago = self.rng.randint(low_days, high_days)
+        # Spread within the day so multiple labs don't share an exact second
+        seconds_ago = self.rng.randint(0, 86_400)
+        ts = datetime.now(timezone.utc) - timedelta(days=days_ago, seconds=seconds_ago)
+        return ts.isoformat()
 
     def _maybe_add_allergies(self) -> list[dict]:
         if self.rng.random() < 0.40:  # 40 % of patients have at least one allergy

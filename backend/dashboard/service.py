@@ -16,10 +16,14 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
+from cds.hedis_measures import HEDIS_MEASURES
 from dashboard.models import (
     AlertFrequency,
     BaselineVitalDelta,
     CareGapContext,
+    CareGapHospitalBreakdown,
+    CareGapMeasureMetric,
+    CareGapPriorityBucket,
     ChronicContextFactor,
     EvidenceItem,
     LongitudinalResponse,
@@ -28,6 +32,8 @@ from dashboard.models import (
     PatientFhirBundleResponse,
     PatientListResponse,
     PatientSummary,
+    PopulationCareGapMetricsFilters,
+    PopulationCareGapMetricsResponse,
     RecommendedAction,
     SearchResponse,
     SearchResult,
@@ -38,6 +44,15 @@ from dashboard.models import (
     WorkbenchStatus,
 )
 from dashboard.repository import DashboardRepository
+
+# Hospital code → display-name map mirrored from synthetic generation. Kept
+# small and local so the dashboard service doesn't take a dependency on the
+# synthetic module just for a label lookup. New hospitals fall back to the code.
+_HOSPITAL_DISPLAY_NAMES: dict[str, str] = {
+    "st_marys": "St. Mary's Medical Center",
+    "regional_general": "Regional General Hospital",
+    "community_health": "Community Health Partners",
+}
 
 _SEVERITY_ORDER = {"critical": 4, "high": 3, "moderate": 2, "low": 1}
 
@@ -614,6 +629,129 @@ class DashboardService:
         )
 
     # ------------------------------------------------------------------
+    # Population care-gap metrics
+    # ------------------------------------------------------------------
+
+    def get_population_care_gap_metrics(
+        self,
+        hospital: Optional[str] = None,
+        profile_type: Optional[str] = None,
+        provider_id: Optional[str] = None,
+    ) -> PopulationCareGapMetricsResponse:
+        """
+        Run a `$facet` aggregation across patient_360 and shape it into the
+        population dashboard response.
+
+        Two passes are performed against MongoDB:
+
+          1. The aggregation pipeline (one round-trip, single doc out).
+          2. A lightweight projection-only `find()` so we can compute
+             *applicable* denominators for each HEDIS measure without
+             encoding HEDIS rules in the aggregation pipeline itself.
+
+        The literal pipeline is returned as `pipeline_display` so the UI can
+        render the actual MongoDB aggregation — same pattern as the
+        longitudinal endpoint.
+        """
+        # provider_id resolution lands in Item 6 (attribution wiring). For now
+        # we accept the param so the route signature is forward-compatible.
+        patient_id_filter = None
+
+        t0 = time.perf_counter()
+        facet_doc, raw_pipeline = self._repo.aggregate_care_gap_metrics(
+            hospital=hospital,
+            profile_type=profile_type,
+            patient_id_filter=patient_id_filter,
+        )
+        applicability_docs = self._repo.list_patient_ids(
+            hospital=hospital,
+            profile_type=profile_type,
+            patient_id_filter=patient_id_filter,
+        )
+        agg_ms = round((time.perf_counter() - t0) * 1000)
+
+        applicable_counts = _count_applicable_per_measure(applicability_docs)
+
+        totals = facet_doc.get("totals") or []
+        total_patients = totals[0].get("patient_count", 0) if totals else 0
+
+        by_measure_raw = {row["_id"]: row for row in facet_doc.get("by_measure", []) if row.get("_id")}
+
+        by_measure: list[CareGapMeasureMetric] = []
+        for measure in HEDIS_MEASURES:
+            code = measure["measure_code"]
+            row = by_measure_raw.get(code, {})
+            applicable = applicable_counts.get(code, 0)
+            open_count = int(row.get("open", 0) or 0)
+            open_pct = round((open_count / applicable) * 100, 1) if applicable else 0.0
+            avg_overdue_raw = row.get("avg_days_overdue")
+            avg_overdue = round(float(avg_overdue_raw), 1) if avg_overdue_raw is not None else 0.0
+            max_overdue_raw = row.get("max_days_overdue")
+            max_overdue = int(max_overdue_raw) if max_overdue_raw is not None else 0
+
+            by_measure.append(CareGapMeasureMetric(
+                hedis_measure=code,
+                measure_name=row.get("measure_name") or measure["measure_name"],
+                applicable_count=applicable,
+                open=open_count,
+                closed_controlled=int(row.get("closed_controlled", 0) or 0),
+                closed_uncontrolled=int(row.get("closed_uncontrolled", 0) or 0),
+                due_soon=int(row.get("due_soon", 0) or 0),
+                open_pct=open_pct,
+                avg_days_overdue=avg_overdue,
+                max_days_overdue=max_overdue,
+            ))
+
+        by_measure.sort(key=lambda m: (-m.open_pct, -m.open, m.hedis_measure))
+
+        priority_order = {"critical": 0, "high": 1, "moderate": 2, "low": 3}
+        by_priority_raw = facet_doc.get("by_priority", [])
+        by_priority = [
+            CareGapPriorityBucket(
+                priority=str(row.get("_id") or "unknown"),
+                count=int(row.get("count", 0) or 0),
+            )
+            for row in by_priority_raw
+            if row.get("_id")
+        ]
+        by_priority.sort(key=lambda b: priority_order.get(b.priority, 99))
+
+        by_hospital_raw = facet_doc.get("by_hospital", [])
+        by_hospital: list[CareGapHospitalBreakdown] = []
+        for row in by_hospital_raw:
+            key = row.get("_id") or {}
+            hospital_code = key.get("hospital") or "unknown"
+            measure_code = key.get("measure")
+            if not measure_code:
+                continue
+            by_hospital.append(CareGapHospitalBreakdown(
+                hospital=hospital_code,
+                hospital_name=_HOSPITAL_DISPLAY_NAMES.get(hospital_code, hospital_code),
+                hedis_measure=measure_code,
+                open_count=int(row.get("count", 0) or 0),
+            ))
+
+        pipeline_display = json.dumps(
+            _decorate_pipeline_for_display(raw_pipeline, hospital, profile_type, provider_id),
+            indent=2,
+            default=str,
+        )
+
+        return PopulationCareGapMetricsResponse(
+            total_patients=total_patients,
+            by_measure=by_measure,
+            by_priority=by_priority,
+            by_hospital=by_hospital,
+            aggregation_ms=agg_ms,
+            pipeline_display=pipeline_display,
+            filters=PopulationCareGapMetricsFilters(
+                hospital=hospital,
+                profile_type=profile_type,
+                provider_id=provider_id,
+            ),
+        )
+
+    # ------------------------------------------------------------------
     # Search
     # ------------------------------------------------------------------
 
@@ -684,6 +822,68 @@ def _compute_risk_score(
         score += 1
 
     return min(score, 10)
+
+
+def _count_applicable_per_measure(
+    docs: list[dict[str, Any]],
+) -> dict[str, int]:
+    """
+    Count how many patients in ``docs`` each HEDIS measure applies to.
+
+    Mirrors `QualityEngine.compute_care_gaps` applicability gating exactly
+    (condition codes ∩ flags ∩ SPD age window) so the denominator the UI
+    shows ("12 of 22 applicable") matches the engine's own numerator.
+    """
+    counts: dict[str, int] = {m["measure_code"]: 0 for m in HEDIS_MEASURES}
+
+    for doc in docs:
+        flags = doc.get("flags", {}) or {}
+        condition_codes = set(flags.get("condition_codes", []) or [])
+        age = (doc.get("demographics") or {}).get("age", 0) or 0
+
+        for measure in HEDIS_MEASURES:
+            applicable_conditions = measure.get("applicable_conditions", [])
+            if applicable_conditions and not any(
+                c in condition_codes for c in applicable_conditions
+            ):
+                continue
+            applicable_flags = measure.get("applicable_flags", [])
+            if applicable_flags and not all(
+                flags.get(f, False) for f in applicable_flags
+            ):
+                continue
+            if measure["measure_code"] == "SPD" and (age < 40 or age > 75):
+                continue
+            counts[measure["measure_code"]] += 1
+
+    return counts
+
+
+def _decorate_pipeline_for_display(
+    raw_pipeline: list[dict[str, Any]],
+    hospital: Optional[str],
+    profile_type: Optional[str],
+    provider_id: Optional[str],
+) -> list[dict[str, Any]]:
+    """
+    Substitute placeholder strings into the `$match` stage so the JSON
+    rendered in the UI tells the same story for both filtered and
+    unfiltered runs.
+    """
+    decorated = json.loads(json.dumps(raw_pipeline, default=str))
+    if not decorated:
+        return decorated
+    match_stage = decorated[0].get("$match", {})
+    if not match_stage:
+        match_stage["<no_filters>"] = "all patients"
+    if hospital is None:
+        match_stage.setdefault("source_hospital", "<all_hospitals>")
+    if profile_type is None:
+        match_stage.setdefault("profile_type", "<all_profiles>")
+    if provider_id is not None:
+        match_stage["patient_id"] = {"$in": f"<patients_attributed_to:{provider_id}>"}
+    decorated[0]["$match"] = match_stage
+    return decorated
 
 
 def _identify_match(doc: dict[str, Any], query_lower: str) -> tuple[str, str]:
@@ -1009,9 +1209,12 @@ def _build_recommended_actions(doc: dict[str, Any]) -> list[RecommendedAction]:
         if normalized in seen:
             continue
         seen.add(normalized)
-        measure_name = gap.get("measure_name", "Care gap follow-up")
+        title = gap.get("recommended_action") or gap.get("measure_name", "Care gap follow-up")
+        reason = gap.get("reason", "")
         days_overdue = gap.get("days_overdue", 0)
-        if days_overdue and days_overdue > 0:
+        if reason:
+            description = f"{reason}. Closing this gap strengthens chronic disease follow-up."
+        elif days_overdue and days_overdue > 0:
             description = (
                 f"{days_overdue} days overdue. Closing this gap strengthens chronic disease "
                 "follow-up and reduces risk of missed deterioration."
@@ -1022,7 +1225,7 @@ def _build_recommended_actions(doc: dict[str, Any]) -> list[RecommendedAction]:
                 "purely observational."
             )
         actions.append(RecommendedAction(
-            title=measure_name,
+            title=title,
             description=description,
             source="Care gap program",
         ))

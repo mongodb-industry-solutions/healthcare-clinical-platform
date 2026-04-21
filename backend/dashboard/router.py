@@ -22,6 +22,7 @@ from dashboard.models import (
     PatientDetailResponse,
     PatientFhirBundleResponse,
     PatientListResponse,
+    PopulationCareGapMetricsResponse,
     SearchResponse,
     VitalsWithContextResponse,
 )
@@ -105,6 +106,10 @@ async def get_patient_fhir_bundle(
 ) -> PatientFhirBundleResponse:
     """
     Return raw FHIR bundle data for the insights modal on demand.
+
+    This is "Layer A" — the canonical FHIR exchange format. The
+    patient_360 document (Layer B) is the derived CDS operational
+    store materialized from these FHIR resources.
     """
     result = svc.get_patient_fhir_bundle(patient_id)
     if result is None:
@@ -174,6 +179,44 @@ async def get_longitudinal(
             detail=f"Longitudinal data for {patient_id!r} not found.",
         )
     return result
+
+
+# ---------------------------------------------------------------------------
+# Population care-gap metrics
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/population/care-gap-metrics",
+    response_model=PopulationCareGapMetricsResponse,
+)
+async def get_population_care_gap_metrics(
+    hospital: Optional[str] = Query(
+        default=None, description="Filter by source hospital key",
+    ),
+    profile_type: Optional[str] = Query(
+        default=None, description="Filter by profile type",
+    ),
+    provider_id: Optional[str] = Query(
+        default=None,
+        description="Filter by attributed provider (Item 6 — currently a no-op)",
+    ),
+    svc: DashboardService = Depends(get_dashboard_service),
+) -> PopulationCareGapMetricsResponse:
+    """
+    Return population-level HEDIS care-gap metrics.
+
+    Single $facet aggregation over patient_360 produces per-measure open /
+    closed-controlled / closed-flagged / due-soon counts, plus open-gap
+    breakdowns by priority and hospital. The applicable denominators are
+    computed in the service layer using the same gating as the quality
+    engine, so the displayed "% open" matches what clinicians actually act
+    on.
+    """
+    return svc.get_population_care_gap_metrics(
+        hospital=hospital,
+        profile_type=profile_type,
+        provider_id=provider_id,
+    )
 
 
 # ---------------------------------------------------------------------------

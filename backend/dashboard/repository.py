@@ -198,6 +198,154 @@ class DashboardRepository:
         return counts
 
     # ------------------------------------------------------------------
+    # Population care-gap aggregation
+    # ------------------------------------------------------------------
+
+    def aggregate_care_gap_metrics(
+        self,
+        hospital: Optional[str] = None,
+        profile_type: Optional[str] = None,
+        patient_id_filter: Optional[list[str]] = None,
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        """
+        Run a single `$facet` aggregation across patient_360 to compute:
+
+          - by_measure   :: open / closed_controlled / closed_uncontrolled / due_soon
+                            counts per HEDIS measure, plus avg/max days_overdue
+          - totals       :: matched patient count
+          - by_priority  :: count of OPEN gaps grouped by priority
+          - by_hospital  :: count of OPEN gaps grouped by (hospital, measure)
+
+        Routing note: when Queryable Encryption is on, the automatic
+        encryption query analyzer rejects `$facet` (it cannot statically
+        prove that the inner pipelines are safe). All fields we touch
+        (`care_gaps.*`, `source_hospital`, `profile_type`, `patient_id`)
+        are unencrypted, so we run this aggregation through the plain
+        client. The result is identical — only ciphertext fields would
+        be opaque, and we never look at any of those here.
+
+        Returns (facet_result_doc, pipeline_used_for_display).
+        """
+        match_stage: dict[str, Any] = {}
+        if hospital:
+            match_stage["source_hospital"] = hospital
+        if profile_type:
+            match_stage["profile_type"] = profile_type
+        if patient_id_filter:
+            match_stage["patient_id"] = {"$in": patient_id_filter}
+
+        # `result_evaluation` is allowed to be missing (older docs / measures
+        # without the block), so we use `$ne false` rather than `$eq true` to
+        # treat missing as "controlled" for the closed_controlled bucket.
+        pipeline: list[dict[str, Any]] = [
+            {"$match": match_stage},
+            {"$facet": {
+                "by_measure": [
+                    {"$unwind": "$care_gaps"},
+                    {"$group": {
+                        "_id": "$care_gaps.hedis_measure",
+                        "measure_name": {"$first": "$care_gaps.measure_name"},
+                        "open": {"$sum": {"$cond": [
+                            {"$eq": ["$care_gaps.status", "open"]}, 1, 0,
+                        ]}},
+                        "closed_controlled": {"$sum": {"$cond": [
+                            {"$and": [
+                                {"$eq": ["$care_gaps.status", "closed"]},
+                                {"$ne": ["$care_gaps.result_evaluation.controlled", False]},
+                            ]}, 1, 0,
+                        ]}},
+                        "closed_uncontrolled": {"$sum": {"$cond": [
+                            {"$eq": ["$care_gaps.result_evaluation.controlled", False]}, 1, 0,
+                        ]}},
+                        "due_soon": {"$sum": {"$cond": [
+                            {"$eq": ["$care_gaps.status", "due_soon"]}, 1, 0,
+                        ]}},
+                        "avg_days_overdue": {"$avg": "$care_gaps.days_overdue"},
+                        "max_days_overdue": {"$max": "$care_gaps.days_overdue"},
+                    }},
+                    {"$sort": {"_id": 1}},
+                ],
+                "totals": [
+                    {"$count": "patient_count"},
+                ],
+                "by_priority": [
+                    {"$unwind": "$care_gaps"},
+                    {"$match": {"care_gaps.status": "open"}},
+                    {"$group": {"_id": "$care_gaps.priority", "count": {"$sum": 1}}},
+                    {"$sort": {"_id": 1}},
+                ],
+                "by_hospital": [
+                    {"$unwind": "$care_gaps"},
+                    {"$match": {"care_gaps.status": "open"}},
+                    {"$group": {
+                        "_id": {
+                            "hospital": "$source_hospital",
+                            "measure": "$care_gaps.hedis_measure",
+                        },
+                        "count": {"$sum": 1},
+                    }},
+                    {"$sort": {"_id.hospital": 1, "_id.measure": 1}},
+                ],
+            }},
+        ]
+
+        collection = self._aggregation_collection(PATIENT_360_COLLECTION)
+        results = list(collection.aggregate(pipeline))
+        # `$facet` always emits exactly one doc; default to an empty shape so
+        # an empty collection doesn't make the service layer reach into None.
+        facet_doc = results[0] if results else {
+            "by_measure": [],
+            "totals": [],
+            "by_priority": [],
+            "by_hospital": [],
+        }
+        return facet_doc, pipeline
+
+    def _aggregation_collection(self, name: str):
+        """
+        Return a collection handle suitable for read-only aggregations that
+        don't touch encrypted fields. With Queryable Encryption enabled the
+        automatic query analyzer disallows several stages (e.g. `$facet`),
+        so we route around it via the plain (non-encrypting) client.
+        """
+        if self._db.has_encryption:
+            return self._db.plain_db[name]
+        return self._db.get_collection(name)
+
+    def list_patient_ids(
+        self,
+        hospital: Optional[str] = None,
+        profile_type: Optional[str] = None,
+        patient_id_filter: Optional[list[str]] = None,
+    ) -> list[dict[str, Any]]:
+        """
+        Lightweight projection used for HEDIS applicability counting.
+        Returns only the fields needed to evaluate measure applicability
+        (condition_codes, flags, age) — keeps the wire payload minimal.
+        """
+        query: dict[str, Any] = {}
+        if hospital:
+            query["source_hospital"] = hospital
+        if profile_type:
+            query["profile_type"] = profile_type
+        if patient_id_filter:
+            query["patient_id"] = {"$in": patient_id_filter}
+
+        projection = {
+            "_id": 0,
+            "patient_id": 1,
+            "demographics.age": 1,
+            "flags": 1,
+            "source_hospital": 1,
+            "profile_type": 1,
+        }
+        collection = self._aggregation_collection(PATIENT_360_COLLECTION)
+        return [
+            self._db.strip_qe_metadata(d)
+            for d in collection.find(query, projection)
+        ]
+
+    # ------------------------------------------------------------------
     # Search
     # ------------------------------------------------------------------
 

@@ -21,6 +21,8 @@ from dashboard.router import router as dashboard_router
 from simulation.router import router as simulation_router
 from interventions.router import router as interventions_router
 from encryption.router import router as encryption_router
+from attribution.router import router as attribution_router
+from fhir.router import router as fhir_router
 from _collection_initializer import CollectionInitializer
 from pymongo import MongoClient
 from db.mdb import MongoDBConnector
@@ -38,6 +40,7 @@ PATIENTS_COLLECTION = "synthetic_patients"
 PATIENT_360_COLLECTION = "patient_360"
 CDS_RULES_COLLECTION = "cds_rules"
 ALERTS_COLLECTION = "alerts"
+ATTRIBUTIONS_COLLECTION = "attributions"
 
 
 def _build_auto_encryption_opts():
@@ -122,6 +125,13 @@ async def lifespan(app: FastAPI):
         {"fields": [("alert_type", 1)]},
     ])
 
+    # Attribution collection (Da Vinci ATR-aligned)
+    init.ensure_collection_with_indexes(ATTRIBUTIONS_COLLECTION, indexes=[
+        {"fields": [("patient_id", 1)]},
+        {"fields": [("provider_id", 1)]},
+        {"fields": [("attribution_id", 1)], "unique": True},
+    ])
+
     app.state.db = shared_db
     app.state.simulation_worker = SimulationWorker(shared_db)
 
@@ -155,6 +165,8 @@ app.include_router(dashboard_router)
 app.include_router(simulation_router)
 app.include_router(interventions_router)
 app.include_router(encryption_router)
+app.include_router(attribution_router)
+app.include_router(fhir_router)
 
 @app.get("/")
 async def read_root(request: Request):

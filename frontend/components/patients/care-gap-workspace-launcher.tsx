@@ -8,11 +8,17 @@ import {
   FlaskConical,
   TestTube,
   ArrowRight,
+  CalendarDays,
+  Stethoscope,
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import type { CareGap } from "@/lib/mock-data"
+import {
+  formatGapResultComponent,
+  getEffectiveGapState,
+} from "@/lib/care-gap-measures"
 
 interface CareGapWorkspaceLauncherProps {
   careGaps: CareGap[]
@@ -45,8 +51,14 @@ export function CareGapWorkspaceLauncher({
   }, [careGaps])
 
   const openCount = careGaps.filter((g) => g.status === "open").length
-  const closedCount = careGaps.filter((g) => g.status === "closed" && !g.follow_up?.recommended).length
+  const closedCount = careGaps.filter(
+    (g) =>
+      getEffectiveGapState(g) === "closed_controlled" && !g.follow_up?.recommended,
+  ).length
   const followUpCount = careGaps.filter((g) => g.follow_up?.recommended).length
+  const flaggedCount = careGaps.filter(
+    (g) => getEffectiveGapState(g) === "closed_uncontrolled",
+  ).length
 
   return (
     <div className="space-y-3">
@@ -61,6 +73,11 @@ export function CareGapWorkspaceLauncher({
           {openCount > 0 && (
             <Badge variant="outline" className="text-[10px] h-5 border-amber-300 text-amber-700 dark:text-amber-400">
               {openCount} open
+            </Badge>
+          )}
+          {flaggedCount > 0 && (
+            <Badge variant="outline" className="text-[10px] h-5 border-amber-400 text-amber-700 dark:text-amber-400">
+              {flaggedCount} flagged
             </Badge>
           )}
           {followUpCount > 0 && (
@@ -102,13 +119,14 @@ function CareGapTile({
   const Icon = MEASURE_ICONS[gap.hedis_measure] ?? AlertCircle
   const description = MEASURE_DESCRIPTIONS[gap.hedis_measure] ?? gap.measure_name
 
-  const isClosed = gap.status === "closed" && !gap.follow_up?.recommended
+  const effectiveState = getEffectiveGapState(gap)
+  const isControlledClosed = effectiveState === "closed_controlled" && !gap.follow_up?.recommended
+  const isFlaggedClosed = effectiveState === "closed_uncontrolled"
   const needsFollowUp = gap.status === "closed" && gap.follow_up?.recommended
-  const isOverdue = gap.days_overdue > 0
+  const isOverdue = gap.status === "open" && gap.days_overdue > 0
   const isInProgress = gap.workflow_status === "ordered"
 
-  const secondaryText = getCareGapSecondaryText(gap)
-  const statusLabel = getCareGapStatusLabel(gap)
+  const statusLabel = getCareGapStatusLabel(gap, effectiveState)
 
   return (
     <button
@@ -117,10 +135,11 @@ function CareGapTile({
         "group relative flex flex-col gap-2 rounded-xl border-2 p-4 text-left transition-all duration-200",
         "hover:shadow-md hover:scale-[1.01]",
         isActive && "border-primary bg-primary/5 shadow-md ring-1 ring-primary/20",
-        !isActive && isClosed && "border-emerald-200 bg-emerald-50/30 dark:border-emerald-800 dark:bg-emerald-950/20",
+        !isActive && isControlledClosed && "border-emerald-200 bg-emerald-50/30 dark:border-emerald-800 dark:bg-emerald-950/20",
+        !isActive && isFlaggedClosed && "border-amber-300 bg-amber-50/40 dark:border-amber-700 dark:bg-amber-950/20",
         !isActive && needsFollowUp && "border-warning/40 bg-warning/5",
         !isActive && isOverdue && "border-destructive/40 bg-destructive/5",
-        !isActive && !isClosed && !needsFollowUp && !isOverdue && "border-border bg-card hover:border-primary/40",
+        !isActive && !isControlledClosed && !isFlaggedClosed && !needsFollowUp && !isOverdue && "border-border bg-card hover:border-primary/40",
       )}
     >
       <div className="flex items-start justify-between">
@@ -129,10 +148,11 @@ function CareGapTile({
             className={cn(
               "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
               isActive && "bg-primary text-primary-foreground",
-              !isActive && isClosed && "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300",
+              !isActive && isControlledClosed && "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300",
+              !isActive && isFlaggedClosed && "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300",
               !isActive && needsFollowUp && "bg-warning/20 text-warning",
               !isActive && isOverdue && "bg-destructive/10 text-destructive",
-              !isActive && !isClosed && !needsFollowUp && !isOverdue && "bg-muted text-muted-foreground",
+              !isActive && !isControlledClosed && !isFlaggedClosed && !needsFollowUp && !isOverdue && "bg-muted text-muted-foreground",
             )}
           >
             <Icon className="h-4.5 w-4.5" />
@@ -144,18 +164,15 @@ function CareGapTile({
         </div>
         <StatusBadge
           label={statusLabel}
-          isClosed={isClosed}
+          isControlledClosed={isControlledClosed}
+          isFlaggedClosed={isFlaggedClosed}
           needsFollowUp={needsFollowUp}
           isOverdue={isOverdue}
           isInProgress={isInProgress}
         />
       </div>
 
-      {secondaryText && (
-        <p className="text-xs text-muted-foreground leading-relaxed pl-[46px]">
-          {secondaryText}
-        </p>
-      )}
+      <CareGapDetails gap={gap} />
 
       <div className={cn(
         "absolute right-3 bottom-3 transition-opacity",
@@ -169,13 +186,15 @@ function CareGapTile({
 
 function StatusBadge({
   label,
-  isClosed,
+  isControlledClosed,
+  isFlaggedClosed,
   needsFollowUp,
   isOverdue,
   isInProgress,
 }: {
   label: string
-  isClosed?: boolean
+  isControlledClosed?: boolean
+  isFlaggedClosed?: boolean
   needsFollowUp?: boolean
   isOverdue?: boolean
   isInProgress?: boolean
@@ -185,11 +204,12 @@ function StatusBadge({
       variant="outline"
       className={cn(
         "text-[10px] shrink-0 h-5",
-        isClosed && "border-emerald-300 text-emerald-700 dark:text-emerald-400 dark:border-emerald-700",
+        isControlledClosed && "border-emerald-300 text-emerald-700 dark:text-emerald-400 dark:border-emerald-700",
+        isFlaggedClosed && "border-amber-400 text-amber-800 dark:text-amber-300 dark:border-amber-600",
         needsFollowUp && "border-warning/40 text-warning",
         isOverdue && "border-destructive/40 text-destructive",
         isInProgress && "border-blue-300 text-blue-600 dark:text-blue-400 dark:border-blue-700",
-        !isClosed && !needsFollowUp && !isOverdue && !isInProgress && "border-amber-300 text-amber-700 dark:text-amber-400",
+        !isControlledClosed && !isFlaggedClosed && !needsFollowUp && !isOverdue && !isInProgress && "border-amber-300 text-amber-700 dark:text-amber-400",
       )}
     >
       {label}
@@ -197,31 +217,126 @@ function StatusBadge({
   )
 }
 
-function getCareGapStatusLabel(gap: CareGap) {
+function getCareGapStatusLabel(gap: CareGap, state: ReturnType<typeof getEffectiveGapState>) {
+  if (state === "closed_uncontrolled") return "Closed — flagged"
   if (gap.status === "closed" && gap.follow_up?.recommended) return "Follow-up needed"
   if (gap.status === "closed") return "Closed"
   if (gap.days_overdue > 0) return `${gap.days_overdue}d overdue`
   if (gap.workflow_status === "ordered") return "In progress"
-  if (gap.closure_evidence?.missing?.length) {
-    return gap.closure_evidence.missing.length === 1
-      ? `${gap.closure_evidence.missing[0]} missing`
-      : `${gap.closure_evidence.missing.length} items missing`
+  if (gap.evidence?.missing?.length) {
+    return gap.evidence.missing.length === 1
+      ? `${gap.evidence.missing[0]}`
+      : `${gap.evidence.missing.length} items missing`
   }
   return "Due soon"
 }
 
-function getCareGapSecondaryText(gap: CareGap) {
-  if (gap.status === "closed" && gap.follow_up?.recommended) {
-    return gap.follow_up.reason ?? "Clinical review recommended after measure closure"
+function formatPeriod(period: string | null | undefined): string | null {
+  if (!period) return null
+  const [start, end] = period.split("/")
+  if (!start || !end) return null
+  const fmt = (d: string) => {
+    try {
+      return new Date(d + "T00:00:00Z").toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        timeZone: "UTC",
+      })
+    } catch {
+      return d
+    }
   }
-  if (gap.workflow_status === "ordered") {
-    return "Intervention workflow started and awaiting evidence"
-  }
-  if (gap.closure_evidence?.missing?.length) {
-    return `Missing: ${gap.closure_evidence.missing.join(", ")}`
-  }
-  if (gap.days_overdue > 0) {
-    return `Due by ${gap.due_by}`
-  }
-  return null
+  return `${fmt(start)} – ${fmt(end)}`
 }
+
+function formatDate(iso: string | null | undefined): string | null {
+  if (!iso) return null
+  try {
+    return new Date(iso).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      timeZone: "UTC",
+    })
+  } catch {
+    return iso
+  }
+}
+
+function CareGapDetails({ gap }: { gap: CareGap }) {
+  const lines: { icon: React.ComponentType<{ className?: string }>; text: string; muted?: boolean }[] = []
+  const state = getEffectiveGapState(gap)
+
+  if (state === "closed_uncontrolled" && gap.result_evaluation) {
+    // Result-based gap: show each component (met / failed) on its own line so
+    // the clinician sees exactly which value drove the flag.
+    gap.result_evaluation.components.forEach((component) => {
+      lines.push({
+        icon: component.met ? CheckCircle2 : AlertCircle,
+        text: formatGapResultComponent(component),
+        muted: component.met,
+      })
+    })
+  } else if (gap.status === "closed" && gap.follow_up?.recommended) {
+    lines.push({
+      icon: AlertCircle,
+      text: gap.follow_up.reason ?? "Clinical review recommended after measure closure",
+    })
+  } else if (gap.workflow_status === "ordered") {
+    lines.push({ icon: Clock, text: "Intervention workflow started — awaiting evidence" })
+  } else if (gap.reason) {
+    lines.push({ icon: AlertCircle, text: gap.reason })
+  }
+
+  // Don't double-render evidence.found for flagged gaps — the result_evaluation
+  // components above already cover the "what was measured" story.
+  if (gap.evidence?.found?.length && state !== "closed_uncontrolled") {
+    lines.push({
+      icon: CheckCircle2,
+      text: gap.evidence.found.join("; "),
+      muted: true,
+    })
+  }
+
+  // Recommended action shows for open gaps, and also for flagged gaps where
+  // the engine swapped in the result-driven follow-up action.
+  if (gap.recommended_action && (gap.status === "open" || state === "closed_uncontrolled")) {
+    lines.push({ icon: Stethoscope, text: gap.recommended_action })
+  }
+
+  const period = formatPeriod(gap.measurement_period)
+  const lastDone = formatDate(gap.last_completed)
+
+  if (period || lastDone) {
+    const parts: string[] = []
+    if (period) parts.push(`Period: ${period}`)
+    if (lastDone) parts.push(`Last: ${lastDone}`)
+    lines.push({ icon: CalendarDays, text: parts.join(" · "), muted: true })
+  }
+
+  if (!lines.length) return null
+
+  return (
+    <div className="flex flex-col gap-1 pl-[46px]">
+      {lines.map((line, i) => {
+        const LineIcon = line.icon
+        return (
+          <div key={i} className="flex items-start gap-1.5">
+            <LineIcon className={cn(
+              "h-3 w-3 mt-0.5 shrink-0",
+              line.muted ? "text-muted-foreground/60" : "text-muted-foreground",
+            )} />
+            <p className={cn(
+              "text-[11px] leading-relaxed",
+              line.muted ? "text-muted-foreground/70" : "text-muted-foreground",
+            )}>
+              {line.text}
+            </p>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+

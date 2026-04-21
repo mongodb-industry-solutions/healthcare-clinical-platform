@@ -119,6 +119,39 @@ async def get_patient_360(
     return doc
 
 
+@router.get("/patients/{patient_id}/provenance", response_model=dict[str, Any])
+async def get_patient_provenance(
+    patient_id: str,
+    svc: MaterializerService = Depends(get_materializer_service),
+) -> dict[str, Any]:
+    """
+    Return the data_provenance block from a Patient 360 document.
+
+    This endpoint makes the dual-layer architecture explicit:
+    - Layer A (FHIR exchange): synthetic_patients collection
+    - Layer B (CDS operational): patient_360 collection
+    """
+    doc = svc.get_patient_360(patient_id)
+    if not doc:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Patient 360 for {patient_id!r} not found.",
+        )
+    provenance = doc.get("data_provenance", {})
+    return {
+        "patient_id": patient_id,
+        "provenance": provenance,
+        "layer_a": {
+            "collection": "synthetic_patients",
+            "description": "Raw FHIR bundles — canonical exchange format for interoperability and audit",
+        },
+        "layer_b": {
+            "collection": "patient_360",
+            "description": "Derived CDS operational store optimized for care-gap evaluation, alerting, and workflow",
+        },
+    }
+
+
 @router.get("/status", response_model=dict[str, int])
 async def get_status(
     svc: MaterializerService = Depends(get_materializer_service),

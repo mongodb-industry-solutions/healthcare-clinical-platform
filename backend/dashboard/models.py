@@ -217,6 +217,68 @@ class LongitudinalResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Population care-gap metrics
+# ---------------------------------------------------------------------------
+
+class CareGapMeasureMetric(BaseModel):
+    """
+    Per-HEDIS-measure population breakdown.
+
+    `applicable_count` is the denominator that should be shown to clinicians:
+    "62 % open" only makes sense relative to patients the measure applies to,
+    not to the entire panel. (KED only applies to T2DM/CKD patients, etc.)
+    """
+    hedis_measure: str
+    measure_name: str
+    applicable_count: int
+    open: int = 0
+    closed_controlled: int = 0
+    closed_uncontrolled: int = 0
+    due_soon: int = 0
+    open_pct: float = 0.0
+    avg_days_overdue: float = 0.0
+    max_days_overdue: int = 0
+
+
+class CareGapPriorityBucket(BaseModel):
+    """Open care-gap count bucketed by priority."""
+    priority: str
+    count: int
+
+
+class CareGapHospitalBreakdown(BaseModel):
+    """Open care-gap count per (hospital, measure) — drives the source split."""
+    hospital: str
+    hospital_name: Optional[str] = None
+    hedis_measure: str
+    open_count: int
+
+
+class PopulationCareGapMetricsFilters(BaseModel):
+    """The filters that produced this response, echoed back for the UI."""
+    hospital: Optional[str] = None
+    profile_type: Optional[str] = None
+    provider_id: Optional[str] = None
+
+
+class PopulationCareGapMetricsResponse(BaseModel):
+    """
+    Population-level HEDIS care-gap snapshot.
+
+    Includes the literal aggregation pipeline JSON so the dashboard can
+    render a "View MongoDB pipeline" panel — same pattern as
+    `LongitudinalResponse.pipeline_display`.
+    """
+    total_patients: int
+    by_measure: list[CareGapMeasureMetric] = []
+    by_priority: list[CareGapPriorityBucket] = []
+    by_hospital: list[CareGapHospitalBreakdown] = []
+    aggregation_ms: int
+    pipeline_display: str
+    filters: PopulationCareGapMetricsFilters
+
+
+# ---------------------------------------------------------------------------
 # Search
 # ---------------------------------------------------------------------------
 

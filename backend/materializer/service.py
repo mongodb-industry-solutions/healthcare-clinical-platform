@@ -83,6 +83,20 @@ class MaterializerService:
             "hospital_name": meta.get("hospital_name", ""),
             "profile_type": profile_type,
             "simulation_pattern": "deteriorating",
+            "data_provenance": {
+                "layer": "cds_operational",
+                "source_fhir_collection": "synthetic_patients",
+                "source_patient_id": patient_id,
+                "materialized_from": "fhir_bundle",
+                "materialization_version": "1.0",
+                "last_materialized_at": now,
+                "fhir_resource_count": len(entries),
+                "note": (
+                    "Derived CDS persistence layer optimized for care-gap evaluation, "
+                    "alerting, and workflow. Source FHIR resources retained in "
+                    "synthetic_patients for interoperability and audit."
+                ),
+            },
             "demographics": demographics,
             "conditions": conditions,
             "medications": medications,
@@ -93,8 +107,8 @@ class MaterializerService:
             "vitals_summary": vitals_summary,
             "longitudinal_snapshots": longitudinal,
             "longitudinal_generated_at": now,
-            "active_alerts": [],   # populated by CDS engine in Phase C
-            "care_gaps": [],       # populated by HEDIS calculator in Phase C
+            "active_alerts": [],
+            "care_gaps": [],
             "interventions": {
                 "ked_workflow": {
                     "status": "not_started",

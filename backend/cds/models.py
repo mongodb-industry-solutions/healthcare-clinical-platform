@@ -156,15 +156,59 @@ class AlertDocument(BaseModel):
 # HEDIS Care Gap
 # ---------------------------------------------------------------------------
 
+class CareGapEvidence(BaseModel):
+    """Structured evidence for a care gap result (DEQM-aligned)."""
+    found: list[str] = []
+    missing: list[str] = []
+    source_resources: list[str] = []
+
+
+class CareGapResultEvaluationComponent(BaseModel):
+    """Per-LOINC result evaluation: did the actual value meet clinical target?"""
+    loinc: str
+    label: str
+    value: Optional[float] = None
+    unit: Optional[str] = None
+    target: float
+    comparator: str          # "lt" | "lte" | "gt" | "gte"
+    met: bool
+    measured_at: Optional[str] = None
+
+
+class CareGapResultEvaluation(BaseModel):
+    """
+    Result-based evaluation alongside HEDIS screening completion.
+
+    HEDIS only requires that a screening was performed; this block adds
+    the clinical question "and was the result actually at target?" so the
+    UI can render the `Closed — flagged` state for completed-but-uncontrolled
+    measures.
+    """
+    controlled: bool
+    label: str               # e.g. "controlled", "poorly controlled"
+    components: list[CareGapResultEvaluationComponent] = []
+    uncontrolled_action: Optional[str] = None
+
+
 class CareGap(BaseModel):
-    """A single HEDIS care gap entry in the Patient 360."""
+    """A single HEDIS care gap entry in the Patient 360 (DEQM-aligned)."""
     hedis_measure: str
     measure_name: str
+    description: str = ""
     status: str = "open"
     last_completed: Optional[str] = None
     due_by: Optional[str] = None
     days_overdue: int = 0
     priority: str = "moderate"
+    measurement_period: Optional[str] = None
+    evidence: CareGapEvidence = CareGapEvidence()
+    reason: Optional[str] = None
+    recommended_action: Optional[str] = None
+    confidence: str = "high"
+    recompute_after: Optional[str] = None
+    workflow_status: Optional[str] = None
+    follow_up: Optional[dict[str, Any]] = None
+    result_evaluation: Optional[CareGapResultEvaluation] = None
 
 
 # ---------------------------------------------------------------------------

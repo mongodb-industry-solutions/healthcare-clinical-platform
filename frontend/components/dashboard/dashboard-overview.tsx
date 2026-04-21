@@ -33,6 +33,7 @@ import {
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { JsonTreeView } from "@/components/mongodb/json-tree-view"
+import { PopulationCareGapMetricsCard } from "@/components/dashboard/population-care-gap-metrics-card"
 import { useDemo } from "@/lib/demo-context"
 import {
   fetchAllPatients,
@@ -236,7 +237,9 @@ export function DashboardOverview() {
         </p>
       </div>
 
-      <div className="mx-auto w-full max-w-[1400px]">
+      <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-5">
+        <PopulationCareGapMetricsCard />
+
         <ReviewQueueCard
           candidates={queueCandidates}
           selectedPatientId={isPrioritySheetOpen ? selectedPriorityPatientId : null}

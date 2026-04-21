@@ -40,7 +40,11 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { type Patient360 } from "@/lib/mock-data"
-import { getCareGapMeasureDashboardLabel, getCareGapMeasureDescription } from "@/lib/care-gap-measures"
+import {
+  getCareGapMeasureDashboardLabel,
+  getCareGapMeasureDescription,
+  getEffectiveGapState,
+} from "@/lib/care-gap-measures"
 
 type CareGapWithPatient = {
   gap: Patient360["care_gaps"][number]
@@ -538,6 +542,11 @@ function GapTable({
                         <CheckCircle2 className="h-3 w-3" />
                         {action.action === "scheduled" ? "Scheduled" : "Ordered"}
                       </Badge>
+                    ) : getEffectiveGapState(item.gap) === "closed_uncontrolled" ? (
+                      <Badge variant="outline" className="gap-1 border-amber-400 text-amber-700 dark:text-amber-400">
+                        <AlertTriangle className="h-3 w-3" />
+                        Closed — flagged
+                      </Badge>
                     ) : item.gap.status === "closed" ? (
                       <Badge variant="outline" className="gap-1 border-green-500/40 text-green-600 dark:text-green-400">
                         <CheckCircle2 className="h-3 w-3" />
@@ -559,7 +568,11 @@ function GapTable({
                       <span className="text-xs text-muted-foreground">Action taken</span>
                     ) : item.gap.status === "closed" ? (
                       <div className="flex items-center justify-end gap-1.5">
-                        <span className="text-xs text-muted-foreground">Up to date</span>
+                        <span className="text-xs text-muted-foreground">
+                          {getEffectiveGapState(item.gap) === "closed_uncontrolled"
+                            ? "Review result"
+                            : "Up to date"}
+                        </span>
                         <Button variant="ghost" size="icon" asChild className="h-8 w-8">
                           <Link href={`/patients/${item.patient.patient_id}`}>
                             <ChevronRight className="h-4 w-4" />

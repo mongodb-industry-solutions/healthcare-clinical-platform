@@ -282,7 +282,7 @@ export function buildPatientMongoActivity(patient: Patient360) {
     })
   }
 
-  const evidenceReceived = kedGap?.closure_evidence?.received ?? []
+  const evidenceReceived = kedGap?.evidence?.found ?? []
   const evidenceTimestamp =
     workflow?.completed_at ??
     workflow?.last_updated_at ??
@@ -301,10 +301,10 @@ export function buildPatientMongoActivity(patient: Patient360) {
     })
   }
 
-  if (kedGap?.status === "closed" && kedGap.closure_evidence?.closed_at) {
+  if (kedGap?.status === "closed" && kedGap.last_completed) {
     events.push({
       id: `${patient.patient_id}-ked-gap-closed`,
-      timestamp: kedGap.closure_evidence.closed_at,
+      timestamp: kedGap.last_completed,
       category: "care-gap",
       title: "KED care gap closed",
       description: "Required evidence was recorded and the diabetic kidney evaluation gap was closed.",
@@ -554,13 +554,9 @@ function buildWithKedWorkflowSnapshot(
     hedis_measure: "KED",
     status: kedGap?.status ?? "open",
     workflow_status: kedGap?.workflow_status ?? workflowState,
-  }
-  if (kedGap?.closure_evidence) {
-    careGapEntry.closure_evidence = {
-      required: kedGap.closure_evidence.required,
-      received: kedGap.closure_evidence.received,
-      missing: kedGap.closure_evidence.missing,
-    }
+    evidence: kedGap?.evidence ?? { found: [], missing: [], source_resources: [] },
+    reason: kedGap?.reason ?? null,
+    recommended_action: kedGap?.recommended_action ?? null,
   }
 
   return {
@@ -599,13 +595,9 @@ function buildWithCdcHbaWorkflowSnapshot(
     hedis_measure: "CDC-HBA",
     status: cdcGap?.status ?? "open",
     workflow_status: cdcGap?.workflow_status ?? workflowState,
-  }
-  if (cdcGap?.closure_evidence) {
-    careGapEntry.closure_evidence = {
-      required: cdcGap.closure_evidence.required,
-      received: cdcGap.closure_evidence.received,
-      missing: cdcGap.closure_evidence.missing,
-    }
+    evidence: cdcGap?.evidence ?? { found: [], missing: [], source_resources: [] },
+    reason: cdcGap?.reason ?? null,
+    recommended_action: cdcGap?.recommended_action ?? null,
   }
 
   return {

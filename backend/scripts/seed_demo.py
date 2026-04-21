@@ -131,10 +131,19 @@ def main():
             print(f"  ERROR: {err}")
 
     # -- 7. Compute HEDIS care gaps --
-    step("7/7  Computing HEDIS care gaps")
+    step("7/8  Computing HEDIS care gaps")
     resp = post("/cds/care-gaps")
     print(f"  Processed: {resp['processed']}/{resp['total_patients']}")
     print(f"  Care gaps found: {resp['total_gaps_found']}")
+    if resp.get("errors"):
+        for err in resp["errors"]:
+            print(f"  ERROR: {err}")
+
+    # -- 8. Seed provider attributions --
+    step("8/8  Seeding provider attributions (Da Vinci ATR)")
+    resp = post("/attribution/seed")
+    print(f"  Patients: {resp['total_patients']}")
+    print(f"  Attributions created: {resp['attributions_created']}")
     if resp.get("errors"):
         for err in resp["errors"]:
             print(f"  ERROR: {err}")

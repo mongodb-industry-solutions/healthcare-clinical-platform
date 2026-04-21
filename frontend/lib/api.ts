@@ -240,6 +240,14 @@ export async function seedCdsRules(): Promise<{
   return apiFetch("/cds/rules/seed", { method: "POST" })
 }
 
+export async function seedAttributions(): Promise<{
+  total_patients: number
+  attributions_created: number
+  errors: string[]
+}> {
+  return apiFetch("/attribution/seed", { method: "POST" })
+}
+
 export async function computeThresholds(
   patientId: string,
 ): Promise<Record<string, unknown>> {
@@ -425,6 +433,66 @@ export async function fetchLongitudinal(
   if (baselinePeriodKey) qs.set("baseline_period_key", baselinePeriodKey)
   return apiFetch<LongitudinalResponse>(
     `/dashboard/patients/${patientId}/longitudinal${qs.size ? `?${qs}` : ""}`,
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Population care-gap metrics
+// ---------------------------------------------------------------------------
+
+export interface CareGapMeasureMetric {
+  hedis_measure: string
+  measure_name: string
+  applicable_count: number
+  open: number
+  closed_controlled: number
+  closed_uncontrolled: number
+  due_soon: number
+  open_pct: number
+  avg_days_overdue: number
+  max_days_overdue: number
+}
+
+export interface CareGapPriorityBucket {
+  priority: string
+  count: number
+}
+
+export interface CareGapHospitalBreakdown {
+  hospital: string
+  hospital_name: string | null
+  hedis_measure: string
+  open_count: number
+}
+
+export interface PopulationCareGapMetricsFilters {
+  hospital: string | null
+  profile_type: string | null
+  provider_id: string | null
+}
+
+export interface PopulationCareGapMetricsResponse {
+  total_patients: number
+  by_measure: CareGapMeasureMetric[]
+  by_priority: CareGapPriorityBucket[]
+  by_hospital: CareGapHospitalBreakdown[]
+  aggregation_ms: number
+  pipeline_display: string
+  filters: PopulationCareGapMetricsFilters
+}
+
+export async function fetchPopulationCareGapMetrics(params?: {
+  hospital?: string | null
+  profile_type?: string | null
+  provider_id?: string | null
+}): Promise<PopulationCareGapMetricsResponse> {
+  const qs = new URLSearchParams()
+  if (params?.hospital) qs.set("hospital", params.hospital)
+  if (params?.profile_type) qs.set("profile_type", params.profile_type)
+  if (params?.provider_id) qs.set("provider_id", params.provider_id)
+  const suffix = qs.size ? `?${qs}` : ""
+  return apiFetch<PopulationCareGapMetricsResponse>(
+    `/dashboard/population/care-gap-metrics${suffix}`,
   )
 }
 

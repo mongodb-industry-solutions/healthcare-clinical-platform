@@ -251,13 +251,21 @@ class HooksService:
         measure_name = gap.get("measure_name", "")
 
         detail_parts = [f"HEDIS Measure: {measure} — {measure_name}"]
-        if gap.get("last_completed"):
+        if gap.get("reason"):
+            detail_parts.append(gap["reason"])
+        elif gap.get("last_completed"):
             detail_parts.append(f"Last completed: {gap['last_completed']}")
         if gap.get("due_by"):
             detail_parts.append(f"Due by: {gap['due_by']}")
         days_overdue = gap.get("days_overdue", 0)
         if days_overdue > 0:
             detail_parts.append(f"Days overdue: {days_overdue}")
+        if gap.get("recommended_action"):
+            detail_parts.append(f"Action: {gap['recommended_action']}")
+
+        evidence = gap.get("evidence", {})
+        for missing in evidence.get("missing", []):
+            detail_parts.append(f"Missing: {missing}")
 
         suggestions = self._build_care_gap_suggestions(gap, p360)
         context_factors = self._get_care_gap_context_factors(gap, p360)

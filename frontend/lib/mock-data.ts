@@ -113,26 +113,54 @@ export interface Alert {
   status: "new" | "acknowledged" | "resolved"
 }
 
+export interface CareGapEvidence {
+  found: string[]
+  missing: string[]
+  source_resources: string[]
+}
+
+export type CareGapResultComparator = "lt" | "lte" | "gt" | "gte"
+
+export interface CareGapResultEvaluationComponent {
+  loinc: string
+  label: string
+  value: number | null
+  unit: string | null
+  target: number
+  comparator: CareGapResultComparator
+  met: boolean
+  measured_at: string | null
+}
+
+export interface CareGapResultEvaluation {
+  controlled: boolean
+  label: string
+  components: CareGapResultEvaluationComponent[]
+  uncontrolled_action: string | null
+}
+
 export interface CareGap {
   hedis_measure: string
   measure_name: string
+  description: string
   status: "open" | "closed"
   last_completed: string | null
   due_by: string
   days_overdue: number
-  priority: "critical" | "high" | "medium" | "low"
+  priority: "critical" | "high" | "moderate" | "medium" | "low"
+  measurement_period: string | null
+  evidence: CareGapEvidence
+  reason: string | null
+  recommended_action: string | null
+  confidence: "high" | "medium" | "low"
+  recompute_after: string | null
   workflow_status?: "not_started" | "ordered" | "completed" | "reviewed"
-  closure_evidence?: {
-    required: string[]
-    received: string[]
-    missing: string[]
-    closed_at: string | null
-  }
   follow_up?: {
     recommended: boolean
     reason: string | null
     status: "not_needed" | "pending_review" | "reviewed"
   }
+  result_evaluation?: CareGapResultEvaluation | null
 }
 
 export interface KedWorkflow {

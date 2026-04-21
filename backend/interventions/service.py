@@ -217,18 +217,22 @@ class InterventionService:
         )
         is_abnormal = self._is_abnormal_ked_result(egfr_val, uacr_val)
 
+        egfr_display = f"eGFR {egfr_val} mL/min/1.73m2 ({now.strftime('%Y-%m-%d')})"
+        uacr_display = f"uACR {uacr_val} mg/g ({now.strftime('%Y-%m-%d')})"
+
         evidence_update: dict[str, Any] = {
             "workflow_status": "completed",
-            "closure_evidence": {
-                "required": ["eGFR", "uACR"],
-                "received": ["eGFR", "uACR"],
+            "evidence": {
+                "found": [egfr_display, uacr_display],
                 "missing": [],
-                "closed_at": now.isoformat(),
+                "source_resources": ["Observation/eGFR", "Observation/uACR"],
             },
             "status": "closed",
             "last_completed": now.strftime("%Y-%m-%d"),
             "days_overdue": 0,
             "priority": "low",
+            "reason": None,
+            "confidence": "high",
         }
 
         follow_up_reason = None
@@ -546,18 +550,21 @@ class InterventionService:
         hba1c_value = lab_doc["value"]
         needs_follow_up = self._is_elevated_hba1c(hba1c_value)
 
+        hba1c_display = f"HbA1c {hba1c_value} % ({now.strftime('%Y-%m-%d')})"
+
         evidence_update: dict[str, Any] = {
             "workflow_status": "completed",
-            "closure_evidence": {
-                "required": ["HbA1c"],
-                "received": ["HbA1c"],
+            "evidence": {
+                "found": [hba1c_display],
                 "missing": [],
-                "closed_at": now.isoformat(),
+                "source_resources": ["Observation/HbA1c"],
             },
             "status": "closed",
             "last_completed": now.strftime("%Y-%m-%d"),
             "days_overdue": 0,
             "priority": "low",
+            "reason": None,
+            "confidence": "high",
         }
 
         follow_up_reason = None
