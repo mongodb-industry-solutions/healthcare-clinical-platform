@@ -36,6 +36,23 @@ export function ClinicalContextPanel({
   )
 
   const [expandedId, setExpandedId] = React.useState<string | null>(null)
+  const [highlightedId, setHighlightedId] = React.useState<string | null>(null)
+
+  // Listen for the focus event dispatched by the linked-alert pill on a care
+  // gap tile (Item 4). When the matching alert exists in this panel, we
+  // expand it so the scrolled-to card is already showing its detail.
+  React.useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ alertId: string }>).detail
+      if (!detail?.alertId) return
+      if (!alerts.some((a) => a.alert_id === detail.alertId)) return
+      setExpandedId(detail.alertId)
+      setHighlightedId(detail.alertId)
+      window.setTimeout(() => setHighlightedId(null), 1600)
+    }
+    window.addEventListener("cds-alert-focus", handler as EventListener)
+    return () => window.removeEventListener("cds-alert-focus", handler as EventListener)
+  }, [alerts])
 
   return (
     <div
@@ -77,14 +94,17 @@ export function ClinicalContextPanel({
             const isHigh = alert.severity === "high"
             const isExpanded = expandedId === alert.alert_id
 
+            const isHighlighted = highlightedId === alert.alert_id
             return (
               <div
                 key={alert.alert_id}
+                id={`cds-alert-${alert.alert_id}`}
                 className={cn(
-                  "rounded-md border transition-colors",
+                  "rounded-md border transition-all duration-300",
                   isCritical && "border-destructive/30 bg-destructive/5",
                   isHigh && "border-warning/30 bg-warning/5",
                   !isCritical && !isHigh && "border-border",
+                  isHighlighted && "ring-2 ring-amber-400/70 ring-offset-1",
                 )}
               >
                 <button

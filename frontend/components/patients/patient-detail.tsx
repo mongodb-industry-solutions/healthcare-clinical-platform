@@ -205,6 +205,7 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
       <PatientIdentityBar
         demographics={demographics}
         mrn={patient.mrn}
+        patientId={patient.patient_id}
         hospitalName={patient.hospital_name}
         profileType={patient.profile_type}
         timeSinceLastAlert={detailData.time_since_last_alert}

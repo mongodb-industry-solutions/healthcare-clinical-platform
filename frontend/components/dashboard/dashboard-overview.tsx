@@ -116,6 +116,10 @@ type QueueSummary = {
   queueCount: number
   nextLabel: string
   nextReason: string
+  // Patients with at least one DEQM "prospective" gap (status === "due_soon").
+  // Surfaced as a separate "Schedule proactively" row so they don't compete
+  // with truly open intervention cases for queue slots.
+  dueSoonPatientCount: number
 }
 
 export function DashboardOverview() {
@@ -188,6 +192,10 @@ export function DashboardOverview() {
         .filter((measure): measure is string => Boolean(measure)),
     )
 
+    const dueSoonPatientCount = patients.filter((p) =>
+      (p.care_gaps ?? []).some((gap) => gap.status === "due_soon"),
+    ).length
+
     return {
       contextElevatedGaps: clinicalSummary.contextElevatedGapCount,
       escalatedCount: queueCandidates.filter((candidate) => isImmediateReviewCandidate(candidate)).length,
@@ -197,8 +205,9 @@ export function DashboardOverview() {
       nextReason: nextCandidate
         ? getCandidateReasonLine(nextCandidate)
         : "No active intervention cases are waiting for review.",
+      dueSoonPatientCount,
     }
-  }, [clinicalSummary.contextElevatedGapCount, queueCandidates])
+  }, [clinicalSummary.contextElevatedGapCount, queueCandidates, patients])
 
   const openPriorityIntervention = React.useCallback((patientId: string) => {
     setSelectedPriorityPatientId(patientId)
@@ -712,9 +721,13 @@ function ReviewQueueCard({
           </CardHeader>
           <CardContent className="space-y-2 px-4">
             {([
-              { label: "Immediate review", count: priorityBreakdown.immediate, pct: priorityBreakdown.immediatePct, dotClass: "bg-red-500" },
-              { label: "High priority", count: priorityBreakdown.high, pct: priorityBreakdown.highPct, dotClass: "bg-amber-500" },
-              { label: "Priority watch", count: priorityBreakdown.watch, pct: priorityBreakdown.watchPct, dotClass: "bg-blue-500" },
+              { label: "Immediate review", count: priorityBreakdown.immediate, pct: priorityBreakdown.immediatePct, dotClass: "bg-red-500", showPct: true },
+              { label: "High priority", count: priorityBreakdown.high, pct: priorityBreakdown.highPct, dotClass: "bg-amber-500", showPct: true },
+              { label: "Priority watch", count: priorityBreakdown.watch, pct: priorityBreakdown.watchPct, dotClass: "bg-blue-500", showPct: true },
+              // DEQM "prospective" — patients with screenings closing in <60d.
+              // Counted from the full patient set, not the queue, because
+              // they intentionally don't compete with open cases for slots.
+              { label: "Schedule proactively", count: summary.dueSoonPatientCount, pct: 0, dotClass: "bg-cyan-500", showPct: false },
             ] as const).map((row) => (
               <div key={row.label} className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
@@ -723,9 +736,15 @@ function ReviewQueueCard({
                 </div>
                 <div className="flex items-center gap-1.5">
                   <span className="text-sm font-semibold tabular-nums">{row.count}</span>
-                  <span className="rounded-full border px-1.5 py-0 text-[10px] tabular-nums text-muted-foreground">
-                    {row.pct}%
-                  </span>
+                  {row.showPct ? (
+                    <span className="rounded-full border px-1.5 py-0 text-[10px] tabular-nums text-muted-foreground">
+                      {row.pct}%
+                    </span>
+                  ) : (
+                    <span className="rounded-full border px-1.5 py-0 text-[10px] tabular-nums text-muted-foreground">
+                      pts
+                    </span>
+                  )}
                 </div>
               </div>
             ))}

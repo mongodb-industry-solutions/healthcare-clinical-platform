@@ -58,23 +58,31 @@ export function getCareGapMeasureActionLabel(measure: string) {
 
 /**
  * Care gap UI state, derived from the raw status + the optional result
- * evaluation. Centralized so future Tier 2 states (e.g. `due_soon`) land in
- * one place rather than being scattered across components.
+ * evaluation. Centralized so every component reads the same precedence rule.
  *
  * - `open`               — screening overdue or never performed
  * - `closed_controlled`  — screening done and result at target
  * - `closed_uncontrolled` — screening done but result NOT at target ("Closed — flagged")
+ * - `due_soon`           — DEQM "prospective"; screening done but closing
+ *                          within `DUE_SOON_WINDOW_DAYS` (60 in the engine)
+ *
+ * Precedence: open > closed_uncontrolled > due_soon > closed_controlled.
+ * Open takes precedence because nothing actionable beats an overdue gap.
+ * `closed_uncontrolled` outranks `due_soon` because a failing prior result
+ * is a more urgent signal than a normal-but-aging screening.
  */
 export type EffectiveGapState =
   | "open"
   | "closed_controlled"
   | "closed_uncontrolled"
+  | "due_soon"
 
 export function getEffectiveGapState(gap: CareGap): EffectiveGapState {
   if (gap.status === "open") return "open"
   if (gap.result_evaluation && gap.result_evaluation.controlled === false) {
     return "closed_uncontrolled"
   }
+  if (gap.status === "due_soon") return "due_soon"
   return "closed_controlled"
 }
 

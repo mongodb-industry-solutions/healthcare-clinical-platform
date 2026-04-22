@@ -1,14 +1,28 @@
 "use client"
 
+import * as React from "react"
 import Link from "next/link"
 import {
   ArrowLeft,
   Database,
+  Info,
+  Stethoscope,
+  UserRound,
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import {
+  fetchPatientAttributions,
+  type PatientAttribution,
+} from "@/lib/api"
 
 interface PatientIdentityBarProps {
   demographics: {
@@ -19,6 +33,7 @@ interface PatientIdentityBarProps {
     gender: string
   }
   mrn: string
+  patientId: string
   hospitalName: string
   profileType: string
   timeSinceLastAlert: string | null
@@ -28,6 +43,7 @@ interface PatientIdentityBarProps {
 export function PatientIdentityBar({
   demographics,
   mrn,
+  patientId,
   hospitalName,
   profileType,
   timeSinceLastAlert,
@@ -66,6 +82,7 @@ export function PatientIdentityBar({
             </>
           )}
         </p>
+        <AttributionStrip patientId={patientId} />
       </div>
 
       <Button
@@ -77,6 +94,111 @@ export function PatientIdentityBar({
       </Button>
     </div>
   )
+}
+
+/** Compact "Attributed: ..." line under the demographics block. */
+function AttributionStrip({ patientId }: { patientId: string }) {
+  const [attributions, setAttributions] = React.useState<PatientAttribution[] | null>(null)
+  const [loading, setLoading] = React.useState(true)
+
+  React.useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    fetchPatientAttributions(patientId)
+      .then((res) => {
+        if (cancelled) return
+        // Only show verified attributions — unverified rows are noise from
+        // expired rosters and shouldn't drive the "responsible clinician"
+        // narrative the bar is trying to project.
+        setAttributions(res.attributions.filter((a) => a.verified))
+      })
+      .catch(() => {
+        if (!cancelled) setAttributions([])
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [patientId])
+
+  if (loading) {
+    return (
+      <p className="mt-1 text-[11px] text-muted-foreground/70">
+        Loading attribution…
+      </p>
+    )
+  }
+
+  if (!attributions || attributions.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+      <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
+        Attributed
+      </span>
+      <span className="text-[11px] text-muted-foreground/70">·</span>
+      {attributions.map((attr, idx) => (
+        <React.Fragment key={attr.attribution_id}>
+          {idx > 0 && (
+            <span className="text-[11px] text-muted-foreground/60">·</span>
+          )}
+          <AttributionPill attribution={attr} />
+        </React.Fragment>
+      ))}
+      <AttributionInfoTip />
+    </div>
+  )
+}
+
+function AttributionPill({ attribution }: { attribution: PatientAttribution }) {
+  const Icon = attribution.provider_role === "pcp" ? Stethoscope : UserRound
+  const roleLabel = formatProviderRole(attribution.provider_role)
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background px-2 py-0.5 text-[11px] text-foreground">
+      <Icon className="h-3 w-3 text-muted-foreground" />
+      <span className="font-medium">{attribution.provider_name}</span>
+      <span className="text-muted-foreground">({roleLabel})</span>
+    </span>
+  )
+}
+
+function AttributionInfoTip() {
+  return (
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className="inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground/60 hover:text-muted-foreground"
+            aria-label="What is provider attribution?"
+          >
+            <Info className="h-3 w-3" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" className="max-w-[260px] text-[11px] leading-relaxed">
+          Provider attribution = the clinician responsible for this patient
+          under value-based contracts. Defined by Da Vinci ATR.
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
+
+function formatProviderRole(role: string): string {
+  switch (role) {
+    case "pcp":
+      return "PCP"
+    case "care_coordinator":
+      return "Care Coord."
+    case "specialist":
+      return "Specialist"
+    default:
+      return role.replace(/_/g, " ")
+  }
 }
 
 function ProfileBadge({ profile }: { profile: string }) {

@@ -26,13 +26,23 @@ from dashboard.models import (
     SearchResponse,
     VitalsWithContextResponse,
 )
+from attribution.repository import AttributionRepository
 from dashboard.repository import DashboardRepository
 from dashboard.service import DashboardService
 
 
 def get_dashboard_service(request: Request) -> DashboardService:
-    """FastAPI dependency — uses the shared (possibly encrypted) DB connector."""
-    return DashboardService(DashboardRepository(request.app.state.db))
+    """FastAPI dependency — uses the shared (possibly encrypted) DB connector.
+
+    Injects the AttributionRepository so the population care-gap endpoint can
+    resolve `provider_id` filters into a patient-id `$in` clause without the
+    dashboard module taking a service-level dependency on attribution.
+    """
+    db = request.app.state.db
+    return DashboardService(
+        DashboardRepository(db),
+        attribution_repo=AttributionRepository(db),
+    )
 
 
 router = APIRouter(prefix="/dashboard", tags=["Clinician Dashboard"])

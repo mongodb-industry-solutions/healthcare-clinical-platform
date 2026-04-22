@@ -139,14 +139,32 @@ export interface CareGapResultEvaluation {
   uncontrolled_action: string | null
 }
 
+export interface CareGapAlertCorrelation {
+  alert_id: string
+  rule_id: string
+  title: string
+  severity: string
+  reasoning: string
+}
+
+export interface CareGapClosureEvent {
+  closed_at: string
+  closed_by: string
+  closed_by_role?: string | null
+  workflow: string
+  evidence_snapshot: string[]
+  result_evaluation?: CareGapResultEvaluation | null
+}
+
 export interface CareGap {
   hedis_measure: string
   measure_name: string
   description: string
-  status: "open" | "closed"
+  status: "open" | "closed" | "due_soon"
   last_completed: string | null
   due_by: string
   days_overdue: number
+  days_until_due?: number
   priority: "critical" | "high" | "moderate" | "medium" | "low"
   measurement_period: string | null
   evidence: CareGapEvidence
@@ -161,6 +179,8 @@ export interface CareGap {
     status: "not_needed" | "pending_review" | "reviewed"
   }
   result_evaluation?: CareGapResultEvaluation | null
+  correlated_alerts?: CareGapAlertCorrelation[]
+  closure_history?: CareGapClosureEvent[]
 }
 
 export interface KedWorkflow {

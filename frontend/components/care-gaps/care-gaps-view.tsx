@@ -121,9 +121,12 @@ export function CareGapsView() {
     [openGaps],
   )
 
+  // Real DEQM "prospective" gaps emitted by the quality engine
+  // (`status === "due_soon"`, screening completed, closing within 60 days).
+  // Effective state guards against any closed-uncontrolled override.
   const dueSoonGaps = React.useMemo(
-    () => openGaps.filter((g) => g.gap.days_overdue <= 0),
-    [openGaps],
+    () => allGaps.filter((g) => getEffectiveGapState(g.gap) === "due_soon"),
+    [allGaps],
   )
 
   const closedGaps = React.useMemo(
@@ -238,7 +241,12 @@ export function CareGapsView() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Due Soon</CardTitle>
           </CardHeader>
           <CardContent>
-            <span className="text-3xl font-bold text-warning">{dueSoonGaps.length}</span>
+            <span className="text-3xl font-bold text-blue-600 dark:text-blue-400">
+              {dueSoonGaps.length}
+            </span>
+            <p className="text-xs text-muted-foreground mt-1">
+              Screening on file, closing in &lt;60d
+            </p>
           </CardContent>
         </Card>
         <Card className={cn(closedGaps.length > 0 && "border-green-500/30")}>
@@ -547,6 +555,13 @@ function GapTable({
                         <AlertTriangle className="h-3 w-3" />
                         Closed — flagged
                       </Badge>
+                    ) : getEffectiveGapState(item.gap) === "due_soon" ? (
+                      <Badge variant="outline" className="gap-1 border-blue-300 text-blue-700 dark:text-blue-400 dark:border-blue-700">
+                        <Calendar className="h-3 w-3" />
+                        {item.gap.days_until_due
+                          ? `Due in ${item.gap.days_until_due}d`
+                          : "Due soon"}
+                      </Badge>
                     ) : item.gap.status === "closed" ? (
                       <Badge variant="outline" className="gap-1 border-green-500/40 text-green-600 dark:text-green-400">
                         <CheckCircle2 className="h-3 w-3" />
@@ -566,6 +581,23 @@ function GapTable({
                   <TableCell className="text-right">
                     {action ? (
                       <span className="text-xs text-muted-foreground">Action taken</span>
+                    ) : getEffectiveGapState(item.gap) === "due_soon" ? (
+                      <div className="flex items-center justify-end gap-1.5">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 gap-1"
+                          onClick={() => onAction({ item, action: "schedule" })}
+                        >
+                          <CalendarPlus className="h-3.5 w-3.5" />
+                          Pre-schedule
+                        </Button>
+                        <Button variant="ghost" size="icon" asChild className="h-8 w-8">
+                          <Link href={`/patients/${item.patient.patient_id}`}>
+                            <ChevronRight className="h-4 w-4" />
+                          </Link>
+                        </Button>
+                      </div>
                     ) : item.gap.status === "closed" ? (
                       <div className="flex items-center justify-end gap-1.5">
                         <span className="text-xs text-muted-foreground">
@@ -657,7 +689,10 @@ function computeComplianceStats(patients: Patient360[]): {
         name: gap.measure_name,
       }
       entry.eligible += 1
-      if (gap.status === "closed") {
+      // HEDIS numerator: any completed screening counts. `due_soon` means the
+      // screening was performed (just aging out), so it still satisfies
+      // compliance for this measurement period.
+      if (gap.status === "closed" || gap.status === "due_soon") {
         entry.compliant += 1
       }
       measureMap.set(gap.hedis_measure, entry)

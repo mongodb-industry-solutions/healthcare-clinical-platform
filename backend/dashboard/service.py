@@ -45,6 +45,11 @@ from dashboard.models import (
 )
 from dashboard.repository import DashboardRepository
 
+# Forward-ref import only — kept inside the type-checking guard would be ideal
+# but the constructor uses it at runtime as an optional dep. We import at
+# module level rather than inside the method to keep the dependency explicit.
+from attribution.repository import AttributionRepository
+
 # Hospital code → display-name map mirrored from synthetic generation. Kept
 # small and local so the dashboard service doesn't take a dependency on the
 # synthetic module just for a label lookup. New hospitals fall back to the code.
@@ -62,8 +67,15 @@ _VITAL_FIELDS = [
 
 
 class DashboardService:
-    def __init__(self, repo: DashboardRepository):
+    def __init__(
+        self,
+        repo: DashboardRepository,
+        attribution_repo: Optional[AttributionRepository] = None,
+    ):
         self._repo = repo
+        # Optional so existing callers (tests, scripts) that don't need
+        # provider-scoped filtering can keep their two-arg construction.
+        self._attribution_repo = attribution_repo
 
     # ------------------------------------------------------------------
     # Patient list (population view)
@@ -653,9 +665,25 @@ class DashboardService:
         render the actual MongoDB aggregation — same pattern as the
         longitudinal endpoint.
         """
-        # provider_id resolution lands in Item 6 (attribution wiring). For now
-        # we accept the param so the route signature is forward-compatible.
-        patient_id_filter = None
+        # Resolve provider_id → patient-id list via the attribution module.
+        # Three states:
+        #   - None              → no provider filter, scope is the whole panel
+        #   - []                → provider exists but has no attributed patients;
+        #                          short-circuit to an empty response so we don't
+        #                          send a `$in: []` query that returns the wrong
+        #                          totals via the unrelated `totals` facet.
+        #   - [pid, ...]        → narrow the aggregation match stage
+        patient_id_filter: Optional[list[str]] = None
+        if provider_id and self._attribution_repo is not None:
+            patient_id_filter = self._attribution_repo.get_patient_ids_for_provider(
+                provider_id,
+            )
+            if not patient_id_filter:
+                return self._empty_population_care_gap_metrics(
+                    hospital=hospital,
+                    profile_type=profile_type,
+                    provider_id=provider_id,
+                )
 
         t0 = time.perf_counter()
         facet_doc, raw_pipeline = self._repo.aggregate_care_gap_metrics(
@@ -744,6 +772,53 @@ class DashboardService:
             by_hospital=by_hospital,
             aggregation_ms=agg_ms,
             pipeline_display=pipeline_display,
+            filters=PopulationCareGapMetricsFilters(
+                hospital=hospital,
+                profile_type=profile_type,
+                provider_id=provider_id,
+            ),
+        )
+
+    def _empty_population_care_gap_metrics(
+        self,
+        hospital: Optional[str],
+        profile_type: Optional[str],
+        provider_id: Optional[str],
+    ) -> PopulationCareGapMetricsResponse:
+        """Zero-row response shape for filters that select no patients."""
+        return PopulationCareGapMetricsResponse(
+            total_patients=0,
+            by_measure=[
+                CareGapMeasureMetric(
+                    hedis_measure=m["measure_code"],
+                    measure_name=m["measure_name"],
+                    applicable_count=0,
+                    open=0,
+                    closed_controlled=0,
+                    closed_uncontrolled=0,
+                    due_soon=0,
+                    open_pct=0.0,
+                    avg_days_overdue=0.0,
+                    max_days_overdue=0,
+                )
+                for m in HEDIS_MEASURES
+            ],
+            by_priority=[],
+            by_hospital=[],
+            aggregation_ms=0,
+            pipeline_display=json.dumps(
+                {
+                    "note": (
+                        "Provider has no attributed patients — aggregation skipped."
+                    ),
+                    "filters": {
+                        "hospital": hospital,
+                        "profile_type": profile_type,
+                        "provider_id": provider_id,
+                    },
+                },
+                indent=2,
+            ),
             filters=PopulationCareGapMetricsFilters(
                 hospital=hospital,
                 profile_type=profile_type,

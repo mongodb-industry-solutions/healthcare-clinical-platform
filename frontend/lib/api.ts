@@ -248,6 +248,50 @@ export async function seedAttributions(): Promise<{
   return apiFetch("/attribution/seed", { method: "POST" })
 }
 
+// ---------------------------------------------------------------------------
+// Provider Attribution (Da Vinci ATR-aligned)
+// ---------------------------------------------------------------------------
+
+export interface ProviderSummary {
+  provider_id: string
+  provider_name: string
+  provider_role: string
+  organization: string
+  patient_count: number
+}
+
+export interface PatientAttribution {
+  attribution_id: string
+  patient_id: string
+  provider_id: string
+  provider_name: string
+  provider_role: string
+  organization: string
+  relationship_type: string
+  period_start: string
+  period_end: string | null
+  source: string
+  verified: boolean
+}
+
+export interface PatientAttributionsResponse {
+  patient_id: string
+  attributions: PatientAttribution[]
+  total: number
+}
+
+export async function fetchProviders(): Promise<ProviderSummary[]> {
+  return apiFetch<ProviderSummary[]>("/attribution/providers")
+}
+
+export async function fetchPatientAttributions(
+  patientId: string,
+): Promise<PatientAttributionsResponse> {
+  return apiFetch<PatientAttributionsResponse>(
+    `/attribution/patient/${encodeURIComponent(patientId)}`,
+  )
+}
+
 export async function computeThresholds(
   patientId: string,
 ): Promise<Record<string, unknown>> {

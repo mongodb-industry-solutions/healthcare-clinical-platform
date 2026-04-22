@@ -42,6 +42,10 @@ class AlertType(str, Enum):
 class CareGapStatus(str, Enum):
     OPEN = "open"
     CLOSED = "closed"
+    # DEQM "prospective" — last screening completed and is closing within
+    # `DUE_SOON_WINDOW_DAYS`. Distinct from `closed` so the UI can render a
+    # "schedule proactively" treatment instead of waiting for it to flip open.
+    DUE_SOON = "due_soon"
 
 
 class CareGapPriority(str, Enum):
@@ -190,6 +194,43 @@ class CareGapResultEvaluation(BaseModel):
     uncontrolled_action: Optional[str] = None
 
 
+class CareGapClosureEvent(BaseModel):
+    """One row in a care gap's audit trail of closures.
+
+    Appended by the quality engine when a gap transitions from `open` (or
+    `due_soon`) to `closed` between consecutive `compute_care_gaps` runs.
+    Supports the §9 "audit trail of what was sent and when" narrative — the
+    UI renders entries like
+    `Closed by Dr. Chen on 2026-04-15 — eGFR 72, uACR 18`.
+
+    `evidence_snapshot` freezes the `evidence.found` array at closure time so
+    a later re-open (overdue) doesn't overwrite the historical record. Dedup
+    on `(workflow, closed_at)` to keep `closure_history` bounded across many
+    recompute cycles.
+    """
+    closed_at: str
+    closed_by: str
+    closed_by_role: Optional[str] = None
+    workflow: str = "system"
+    evidence_snapshot: list[str] = []
+    result_evaluation: Optional[CareGapResultEvaluation] = None
+
+
+class CareGapAlertCorrelation(BaseModel):
+    """One-way derived link from a real-time alert into a care gap.
+
+    Populated by the quality engine when it correlates an entry from
+    `patient_360.active_alerts` to a HEDIS measure via the
+    `ALERT_ESCALATIONS_BY_MEASURE` table. The alert engine itself has no
+    knowledge of this projection — it remains a pure data-level read.
+    """
+    alert_id: str
+    rule_id: str
+    title: str
+    severity: str
+    reasoning: str
+
+
 class CareGap(BaseModel):
     """A single HEDIS care gap entry in the Patient 360 (DEQM-aligned)."""
     hedis_measure: str
@@ -199,6 +240,7 @@ class CareGap(BaseModel):
     last_completed: Optional[str] = None
     due_by: Optional[str] = None
     days_overdue: int = 0
+    days_until_due: int = 0
     priority: str = "moderate"
     measurement_period: Optional[str] = None
     evidence: CareGapEvidence = CareGapEvidence()
@@ -209,6 +251,8 @@ class CareGap(BaseModel):
     workflow_status: Optional[str] = None
     follow_up: Optional[dict[str, Any]] = None
     result_evaluation: Optional[CareGapResultEvaluation] = None
+    correlated_alerts: list[CareGapAlertCorrelation] = []
+    closure_history: list[CareGapClosureEvent] = []
 
 
 # ---------------------------------------------------------------------------
