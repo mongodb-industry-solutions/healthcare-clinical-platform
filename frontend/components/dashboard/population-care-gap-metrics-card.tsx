@@ -4,7 +4,6 @@ import * as React from "react"
 import {
   AlertTriangle,
   Building2,
-  ChevronDown,
   Database,
   Filter,
   Info,
@@ -17,10 +16,11 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible"
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Progress } from "@/components/ui/progress"
 import {
   Select,
@@ -52,7 +52,7 @@ const HOSPITAL_OPTIONS: { value: string; label: string }[] = [
 
 const PROFILE_OPTIONS: { value: string; label: string }[] = [
   { value: "all", label: "All profiles" },
-  { value: "diabetic_ckd_target", label: "Diabetic + CKD (target)" },
+  { value: "target", label: "Diabetic + CKD (target)" },
   { value: "diabetic", label: "Diabetic" },
   { value: "cardiac", label: "Cardiac" },
   { value: "healthy", label: "Healthy baseline" },
@@ -167,13 +167,19 @@ export function PopulationCareGapMetricsCard() {
             <div className="flex items-center gap-2">
               <Database className="h-4 w-4 text-emerald-700 dark:text-emerald-400" />
               <CardTitle className="text-lg">Population Care-Gap Health</CardTitle>
-              <Badge variant="outline" className="border-emerald-300 bg-white text-[10px] font-medium uppercase tracking-wide text-emerald-800 dark:bg-transparent dark:text-emerald-300">
-                MongoDB $facet
-              </Badge>
+              <TooltipProvider delayDuration={200}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Badge variant="outline" className="cursor-default border-emerald-300 bg-white text-[10px] font-medium uppercase tracking-wide text-emerald-800 dark:bg-transparent dark:text-emerald-300">
+                      MongoDB $facet
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-[260px] text-xs">
+                    Runs multiple independent sub-aggregations over the same input documents in a single pipeline stage. One MongoDB round-trip returns breakdowns by measure, priority, and hospital simultaneously.
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             </div>
-            <CardDescription>
-              Single aggregation pipeline answers "which HEDIS measures are most overdue across my panel right now?"
-            </CardDescription>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -297,33 +303,35 @@ export function PopulationCareGapMetricsCard() {
         ) : null}
 
         {data ? (
-          <Collapsible open={pipelineOpen} onOpenChange={setPipelineOpen}>
-            <CollapsibleTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 w-fit gap-2 border-emerald-200 text-xs text-emerald-800 dark:border-emerald-900 dark:text-emerald-200"
-              >
-                <Database className="h-3.5 w-3.5" />
-                {pipelineOpen ? "Hide MongoDB pipeline" : "View MongoDB pipeline"}
-                <ChevronDown
-                  className={cn(
-                    "h-3 w-3 transition-transform",
-                    pipelineOpen ? "rotate-180" : "rotate-0",
-                  )}
-                />
-              </Button>
-            </CollapsibleTrigger>
-            <CollapsibleContent className="mt-3">
-              <div className="rounded-md border bg-muted/30 p-1">
-                <JsonTreeView value={parsePipeline(data.pipeline_display)} collapsed={3} />
-              </div>
-              <p className="mt-2 text-xs text-muted-foreground">
-                The pipeline ran in <span className="font-medium text-foreground">{data.aggregation_ms} ms</span> against
-                the same Patient 360 collection the dashboard reads from.
-              </p>
-            </CollapsibleContent>
-          </Collapsible>
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 w-fit gap-2 border-emerald-200 text-xs text-emerald-800 dark:border-emerald-900 dark:text-emerald-200"
+              onClick={() => setPipelineOpen(true)}
+            >
+              <Database className="h-3.5 w-3.5" />
+              View MongoDB pipeline
+            </Button>
+
+            <Dialog open={pipelineOpen} onOpenChange={setPipelineOpen}>
+              <DialogContent className="sm:max-w-3xl max-h-[80vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2 text-base">
+                    <Database className="h-4 w-4 text-emerald-700" />
+                    MongoDB $facet pipeline
+                  </DialogTitle>
+                </DialogHeader>
+                <div className="rounded-md border bg-muted/30 p-1">
+                  <JsonTreeView value={parsePipeline(data.pipeline_display)} collapsed={3} />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  The pipeline ran in <span className="font-medium text-foreground">{data.aggregation_ms} ms</span> against
+                  the same Patient 360 collection the dashboard reads from.
+                </p>
+              </DialogContent>
+            </Dialog>
+          </>
         ) : null}
       </CardContent>
     </Card>
