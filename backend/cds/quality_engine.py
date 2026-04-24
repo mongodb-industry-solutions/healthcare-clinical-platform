@@ -32,8 +32,7 @@ logger = logging.getLogger(__name__)
 # Behaviour:
 #   * `rule_ids`      — explicit allow-list of alert rule_ids that escalate
 #                       the measure. Empty list ⇒ any alert at or above
-#                       `min_severity` qualifies (used for measures that have
-#                       no measure-specific rule today, e.g. SPD/EED).
+#                       `min_severity` qualifies.
 #   * `min_severity`  — minimum severity required for the alert to count.
 ALERT_ESCALATIONS_BY_MEASURE: dict[str, dict[str, Any]] = {
     "CDC-HBA": {
@@ -48,8 +47,19 @@ ALERT_ESCALATIONS_BY_MEASURE: dict[str, dict[str, Any]] = {
         "rule_ids": ["cds_beta_blocker_hr"],
         "min_severity": "moderate",
     },
-    "SPD": {"rule_ids": [], "min_severity": "high"},
-    "EED": {"rule_ids": [], "min_severity": "critical"},
+    "SPD": {
+        # Sepsis in a diabetic patient without active statin therapy elevates
+        # cardiovascular mortality risk. Breakthrough tachycardia on a beta-blocker
+        # signals cardiovascular instability where the statin gap becomes acute.
+        "rule_ids": ["cds_sepsis_warning", "cds_beta_blocker_hr"],
+        "min_severity": "high",
+    },
+    "EED": {
+        # Hypoglycemic episodes directly damage retinal tissue; an active
+        # hypoglycemia pattern makes an overdue diabetic eye exam genuinely urgent.
+        "rule_ids": ["cds_hypoglycemia"],
+        "min_severity": "high",
+    },
 }
 
 _SEVERITY_ORDER = ["low", "moderate", "high", "critical"]
