@@ -6,6 +6,7 @@ import {
   ArrowRight,
   BarChart3,
   Bell,
+  ChevronLeft,
   ChevronRight,
   ClipboardList,
   HeartPulse,
@@ -32,6 +33,7 @@ import {
 } from "@/components/ui/dialog"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { JsonTreeView } from "@/components/mongodb/json-tree-view"
 import { PopulationCareGapMetricsCard } from "@/components/dashboard/population-care-gap-metrics-card"
 import { useDemo } from "@/lib/demo-context"
@@ -240,7 +242,7 @@ export function DashboardOverview() {
   return (
     <div className="flex flex-col gap-5 p-5">
       <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Clinical Quality Operations</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Care Gap Operations</h1>
         <p className="text-sm text-muted-foreground">
           Identify which care gaps need intervention now based on HEDIS risk, live context, and CDS guidance.
         </p>
@@ -662,6 +664,8 @@ function TopEscalationCard({
   )
 }
 
+const QUEUE_PAGE_SIZE = 10
+
 function ReviewQueueCard({
   candidates,
   selectedPatientId,
@@ -673,6 +677,14 @@ function ReviewQueueCard({
   summary: QueueSummary
   onOpenPatient: (patientId: string) => void
 }) {
+  const [page, setPage] = React.useState(0)
+  const totalPages = Math.max(1, Math.ceil(candidates.length / QUEUE_PAGE_SIZE))
+  const pagedCandidates = candidates.slice(page * QUEUE_PAGE_SIZE, (page + 1) * QUEUE_PAGE_SIZE)
+
+  React.useEffect(() => {
+    setPage(0)
+  }, [candidates.length])
+
   const careGapsHandoff = getCareGapsHandoff(candidates)
 
   const priorityBreakdown = (() => {
@@ -721,19 +733,41 @@ function ReviewQueueCard({
           </CardHeader>
           <CardContent className="space-y-2 px-4">
             {([
-              { label: "Immediate review", count: priorityBreakdown.immediate, pct: priorityBreakdown.immediatePct, dotClass: "bg-red-500", showPct: true },
-              { label: "High priority", count: priorityBreakdown.high, pct: priorityBreakdown.highPct, dotClass: "bg-amber-500", showPct: true },
-              { label: "Priority watch", count: priorityBreakdown.watch, pct: priorityBreakdown.watchPct, dotClass: "bg-blue-500", showPct: true },
-              // DEQM "prospective" — patients with screenings closing in <60d.
-              // Counted from the full patient set, not the queue, because
-              // they intentionally don't compete with open cases for slots.
-              { label: "Schedule proactively", count: summary.dueSoonPatientCount, pct: 0, dotClass: "bg-cyan-500", showPct: false },
+              {
+                label: "Immediate review",
+                tooltip: "Active critical alert or composite clinical score ≥ 260. Requires attention now — vital breach, sepsis or hypoglycemia pattern, or a critical CDS alert is driving this case.",
+                count: priorityBreakdown.immediate, pct: priorityBreakdown.immediatePct, dotClass: "bg-red-500", showPct: true,
+              },
+              {
+                label: "High priority",
+                tooltip: "Composite clinical score between 180 and 259. The gap is overdue and amplified by comorbidities or live vitals pressure, but no critical alert has fired yet.",
+                count: priorityBreakdown.high, pct: priorityBreakdown.highPct, dotClass: "bg-amber-500", showPct: true,
+              },
+              {
+                label: "Priority watch",
+                tooltip: "Composite score below 180. An open care gap qualifies this patient for the queue, but no live vitals pressure or serious alert is amplifying it yet. Score rises as the gap becomes more overdue.",
+                count: priorityBreakdown.watch, pct: priorityBreakdown.watchPct, dotClass: "bg-blue-500", showPct: true,
+              },
+              {
+                label: "Schedule proactively",
+                tooltip: "Screening window closes within 60 days. The gap is not yet open, but scheduling now avoids a future miss. These patients are counted from the full population, not the active intervention queue.",
+                count: summary.dueSoonPatientCount, pct: 0, dotClass: "bg-cyan-500", showPct: false,
+              },
             ] as const).map((row) => (
               <div key={row.label} className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <span className={cn("h-2 w-2 rounded-full", row.dotClass)} />
-                  <span className="text-sm text-foreground">{row.label}</span>
-                </div>
+                <TooltipProvider delayDuration={150}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="flex cursor-default items-center gap-2">
+                        <span className={cn("h-2 w-2 rounded-full", row.dotClass)} />
+                        <span className="text-sm text-foreground">{row.label}</span>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-[260px] text-xs">
+                      {row.tooltip}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
                 <div className="flex items-center gap-1.5">
                   <span className="text-sm font-semibold tabular-nums">{row.count}</span>
                   {row.showPct ? (
@@ -843,7 +877,7 @@ function ReviewQueueCard({
           </div>
         ) : (
           <div className="divide-y divide-border/40">
-            {candidates.map((candidate) => {
+            {pagedCandidates.map((candidate) => {
               const isSelected = selectedPatientId === candidate.patient.patient_id
               const urgencyLabel = getQueueUrgencyLabel(candidate)
 
@@ -923,6 +957,36 @@ function ReviewQueueCard({
                 </button>
               )
             })}
+          </div>
+        )}
+
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between border-t border-border/40 px-4 py-2">
+            <span className="text-xs text-muted-foreground">
+              Page {page + 1} of {totalPages} · {candidates.length} cases
+            </span>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2"
+                disabled={page === 0}
+                onClick={() => setPage((p) => p - 1)}
+                aria-label="Previous page"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2"
+                disabled={page >= totalPages - 1}
+                onClick={() => setPage((p) => p + 1)}
+                aria-label="Next page"
+              >
+                <ChevronRight className="h-3.5 w-3.5" />
+              </Button>
+            </div>
           </div>
         )}
 
@@ -1162,6 +1226,7 @@ function getMeasurePressureScore(topGap: CareGap, openGapCount: number) {
   const priorityWeight: Record<CareGap["priority"], number> = {
     critical: 95,
     high: 72,
+    moderate: 50,
     medium: 44,
     low: 20,
   }

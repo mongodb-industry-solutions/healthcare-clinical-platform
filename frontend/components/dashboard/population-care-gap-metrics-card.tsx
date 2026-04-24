@@ -360,19 +360,39 @@ function SummaryStrip({
       />
       {byPriority.length > 0 ? (
         <div className="flex items-center gap-1.5">
-          <span className="text-muted-foreground">Open by priority</span>
+          <TooltipProvider delayDuration={150}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="flex cursor-default items-center gap-1 text-muted-foreground">
+                  Open by priority
+                  <Info className="h-3 w-3 shrink-0" />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-[240px] text-xs">
+                Clinical priority of <strong>open</strong> care gaps only.
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           {byPriority.map((bucket) => (
-            <Badge
-              key={bucket.priority}
-              variant="outline"
-              className={cn(
-                "h-5 gap-1 px-1.5 text-[10px] font-medium uppercase",
-                PRIORITY_BADGE[bucket.priority] ?? "",
-              )}
-            >
-              {bucket.priority}
-              <span className="font-semibold">{bucket.count}</span>
-            </Badge>
+            <TooltipProvider key={bucket.priority} delayDuration={150}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "h-5 cursor-default gap-1 px-1.5 text-[10px] font-medium uppercase",
+                      PRIORITY_BADGE[bucket.priority] ?? "",
+                    )}
+                  >
+                    {bucket.priority}
+                    <span className="font-semibold">{bucket.count}</span>
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent className="text-xs">
+                  {bucket.count} open gap{bucket.count === 1 ? "" : "s"} assessed as {bucket.priority} clinical priority
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           ))}
         </div>
       ) : null}
@@ -413,6 +433,18 @@ function MeasureTable({
   measures: CareGapMeasureMetric[]
   showDueSoonColumn: boolean
 }) {
+  const actionableMeasures = measures.filter(
+    (m) => m.open > 0 || m.closed_uncontrolled > 0 || m.due_soon > 0,
+  )
+
+  if (actionableMeasures.length === 0) {
+    return (
+      <div className="rounded-md border border-dashed border-emerald-200 bg-white/60 p-6 text-center text-sm text-muted-foreground dark:border-emerald-900 dark:bg-transparent">
+        No measures have open, uncontrolled, or due-soon gaps under the current filters.
+      </div>
+    )
+  }
+
   return (
     <div className="overflow-hidden rounded-md border bg-white dark:bg-transparent">
       <table className="w-full text-sm">
@@ -422,14 +454,28 @@ function MeasureTable({
             <th className="px-4 py-2 text-left font-medium">% open</th>
             <th className="px-4 py-2 text-left font-medium">Open / applicable</th>
             <th className="px-4 py-2 text-left font-medium">Closed</th>
-            <th className="px-4 py-2 text-left font-medium">Flagged</th>
+            <th className="px-4 py-2 text-left font-medium">
+              <TooltipProvider delayDuration={150}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="flex cursor-default items-center gap-1">
+                      Uncontrolled
+                      <Info className="h-3 w-3 shrink-0 text-muted-foreground" />
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-[260px] text-xs">
+                    Screening completed but result outside the acceptable threshold — e.g. HbA1c test done but value ≥ 8%. This is the HEDIS "uncontrolled" outcome, not related to the Open by priority badges above.
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </th>
             {showDueSoonColumn ? <th className="px-4 py-2 text-left font-medium">Due soon</th> : null}
             <th className="px-4 py-2 text-left font-medium">Avg overdue</th>
             <th className="px-4 py-2 text-left font-medium">Max overdue</th>
           </tr>
         </thead>
         <tbody>
-          {measures.map((m) => (
+          {actionableMeasures.map((m) => (
             <MeasureRow key={m.hedis_measure} measure={m} showDueSoonColumn={showDueSoonColumn} />
           ))}
         </tbody>
@@ -486,13 +532,22 @@ function MeasureRow({
       </td>
       <td className="px-4 py-3">
         {measure.closed_uncontrolled > 0 ? (
-          <Badge
-            variant="outline"
-            className="gap-1 border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200"
-          >
-            <AlertTriangle className="h-3 w-3" />
-            {measure.closed_uncontrolled}
-          </Badge>
+          <TooltipProvider delayDuration={150}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge
+                  variant="outline"
+                  className="cursor-default gap-1 border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200"
+                >
+                  <AlertTriangle className="h-3 w-3" />
+                  {measure.closed_uncontrolled}
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-[240px] text-xs">
+                {measure.closed_uncontrolled} screening{measure.closed_uncontrolled === 1 ? "" : "s"} completed but result outside the acceptable threshold (HEDIS "uncontrolled"). Unrelated to the Open by priority badges.
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         ) : (
           <span className="text-xs text-muted-foreground">0</span>
         )}

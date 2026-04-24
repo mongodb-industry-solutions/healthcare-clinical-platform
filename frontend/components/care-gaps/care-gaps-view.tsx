@@ -64,6 +64,7 @@ export function CareGapsView() {
   const [error, setError] = React.useState<string | null>(null)
   const [scheduledActions, setScheduledActions] = React.useState<Record<string, ScheduledAction>>({})
   const [dialogTarget, setDialogTarget] = React.useState<{ item: CareGapWithPatient; action: "schedule" | "order" } | null>(null)
+
   const dashboardSource = searchParams.get("source") === "dashboard"
   const focusedMeasures = React.useMemo(
     () =>
@@ -75,15 +76,12 @@ export function CareGapsView() {
   )
 
   React.useEffect(() => {
-    setLoading(true)
+    if (patients.length === 0) setLoading(true)
     fetchAllPatients({ limit: 500 })
-      .then((data) => {
-        setPatients(data)
-        setError(null)
-      })
+      .then((data) => { setPatients(data); setError(null) })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
-  }, [dataVersion])
+  }, [dataVersion]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const allGaps: CareGapWithPatient[] = React.useMemo(() => {
     const gaps: CareGapWithPatient[] = []
@@ -171,8 +169,6 @@ export function CareGapsView() {
     setDialogTarget(null)
   }
 
-  const scheduledCount = Object.keys(scheduledActions).length
-
   return (
     <div className="flex flex-col gap-6 p-6">
       <div>
@@ -211,7 +207,7 @@ export function CareGapsView() {
       )}
 
       {/* ---- Stats row ---- */}
-      <div className="grid gap-4 md:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Open Gaps</CardTitle>
@@ -225,14 +221,23 @@ export function CareGapsView() {
         </Card>
         <Card className={cn(overdueGaps.length > 0 && "border-destructive/50")}>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Overdue</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Avg Days Overdue</CardTitle>
           </CardHeader>
           <CardContent>
-            <span className={cn("text-3xl font-bold", overdueGaps.length > 0 && "text-destructive")}>{overdueGaps.length}</span>
-            {overdueGaps.length > 0 && (
-              <p className="text-xs text-muted-foreground mt-1">
-                Avg {Math.round(overdueGaps.reduce((s, g) => s + g.gap.days_overdue, 0) / overdueGaps.length)}d overdue
-              </p>
+            {overdueGaps.length > 0 ? (
+              <>
+                <span className="text-3xl font-bold text-destructive">
+                  {Math.round(overdueGaps.reduce((s, g) => s + g.gap.days_overdue, 0) / overdueGaps.length)}d
+                </span>
+                <p className="text-xs text-muted-foreground mt-1">
+                  across {overdueGaps.length} overdue gap{overdueGaps.length === 1 ? "" : "s"}
+                </p>
+              </>
+            ) : (
+              <>
+                <span className="text-3xl font-bold text-green-600 dark:text-green-400">—</span>
+                <p className="text-xs text-muted-foreground mt-1">No overdue gaps</p>
+              </>
             )}
           </CardContent>
         </Card>
@@ -260,18 +265,6 @@ export function CareGapsView() {
             <p className="text-xs text-muted-foreground mt-1">
               Measures met on schedule
             </p>
-          </CardContent>
-        </Card>
-        <Card className={cn(scheduledCount > 0 && "border-primary/50")}>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Scheduled / Ordered
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <span className={cn("text-3xl font-bold", scheduledCount > 0 && "text-primary")}>
-              {scheduledCount}
-            </span>
           </CardContent>
         </Card>
       </div>

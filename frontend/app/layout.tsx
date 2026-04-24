@@ -10,7 +10,7 @@ const geistSans = Geist({ subsets: ["latin"], variable: "--font-sans" })
 const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-mono" })
 
 export const metadata: Metadata = {
-  title: 'Leafy Health | Clinical Monitoring Platform',
+  title: 'Clinical Operations Platform',
   description: 'Unified clinical monitoring platform for remote patient monitoring with real-time vitals, CDS alerts, and HEDIS care gap tracking.',
   icons: {
     icon: '/icon.svg',

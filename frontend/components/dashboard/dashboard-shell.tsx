@@ -86,7 +86,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
               <Activity className="h-4 w-4" />
             </div>
             <div className="hidden sm:flex flex-col gap-0.5 leading-none">
-              <span className="font-semibold text-sm">Leafy Health</span>
+              <span className="font-semibold text-sm">Clinical Operations Platform</span>
             </div>
           </Link>
 

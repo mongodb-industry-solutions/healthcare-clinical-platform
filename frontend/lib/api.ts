@@ -1,5 +1,5 @@
 /**
- * API client for the Leafy Health FastAPI backend.
+ * API client for the Clinical Operations Platform FastAPI backend.
  *
  * Endpoints used:
  *   /materializer/patients          — Full Patient 360 documents

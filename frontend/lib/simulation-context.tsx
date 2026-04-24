@@ -55,7 +55,7 @@ const SimulationContext = React.createContext<SimulationContextValue | null>(nul
 const MAX_ALERTS = 50
 
 export function SimulationProvider({ children }: { children: React.ReactNode }) {
-  const { step, bumpDataVersion } = useDemo()
+  const { step, bumpDataVersion, persona } = useDemo()
 
   const [isRunning, setIsRunning] = React.useState(false)
   const [tickCount, setTickCount] = React.useState(0)
@@ -239,7 +239,7 @@ export function SimulationProvider({ children }: { children: React.ReactNode }) 
   return (
     <SimulationContext value={value}>
       {children}
-      <AlertDialog open={!!stoppedInfo} onOpenChange={(open) => { if (!open) setStoppedInfo(null) }}>
+      <AlertDialog open={!!stoppedInfo && persona?.role === "physician"} onOpenChange={(open) => { if (!open) setStoppedInfo(null) }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-muted mb-2">
