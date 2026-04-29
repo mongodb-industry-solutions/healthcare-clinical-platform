@@ -29,7 +29,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Progress } from "@/components/ui/progress"
 import {
   Table,
   TableBody,
@@ -42,9 +41,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { type Patient360 } from "@/lib/mock-data"
 import {
   getCareGapMeasureDashboardLabel,
-  getCareGapMeasureDescription,
   getEffectiveGapState,
 } from "@/lib/care-gap-measures"
+
+const CHARTS_BASE_URL = process.env.NEXT_PUBLIC_CHARTS_BASE_URL || "https://charts.mongodb.com/charts-jeffn-zsdtj"
+const CARE_GAP_DASHBOARD_ID = process.env.NEXT_PUBLIC_CHARTS_CARE_GAP_DASHBOARD_ID || "40eef755-0404-41ff-b74a-dbfbc4d309a4"
 
 type CareGapWithPatient = {
   gap: Patient360["care_gaps"][number]
@@ -130,11 +131,6 @@ export function CareGapsView() {
   const closedGaps = React.useMemo(
     () => allGaps.filter((g) => g.gap.status === "closed"),
     [allGaps],
-  )
-
-  const complianceStats = React.useMemo(
-    () => computeComplianceStats(patients),
-    [patients],
   )
 
   if (loading) {
@@ -269,63 +265,19 @@ export function CareGapsView() {
         </Card>
       </div>
 
-      {/* ---- Compliance scorecard ---- */}
+      {/* ---- Atlas Charts dashboard ---- */}
       <Card>
         <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-base font-medium">HEDIS Compliance</CardTitle>
-              <CardDescription>
-                Population-level compliance across all tracked measures
-              </CardDescription>
-            </div>
-            <div className="text-right">
-              <span className="text-3xl font-bold tabular-nums">
-                {complianceStats.overall}%
-              </span>
-              <p className="text-xs text-muted-foreground mt-0.5">overall</p>
-            </div>
-          </div>
+          <CardTitle className="text-base font-medium">Care Gap Analytics</CardTitle>
+          <CardDescription>Population-level insights powered by MongoDB Atlas Charts</CardDescription>
         </CardHeader>
-        <CardContent>
-          <Progress value={complianceStats.overall} className="h-2.5 mb-5" />
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {complianceStats.perMeasure.map((entry) => (
-              <div key={entry.measure} className="rounded-lg border p-3">
-                <div className="flex items-center justify-between mb-1.5">
-                  <div className="flex items-center gap-2">
-                    <ClipboardList className="h-3.5 w-3.5 text-muted-foreground" />
-                    <span className="text-sm font-medium">{entry.measure}</span>
-                  </div>
-                  <span
-                    className={cn(
-                      "text-sm font-semibold tabular-nums",
-                      entry.rate >= 80 && "text-success",
-                      entry.rate >= 50 && entry.rate < 80 && "text-warning",
-                      entry.rate < 50 && "text-destructive",
-                    )}
-                  >
-                    {entry.rate}%
-                  </span>
-                </div>
-                <Progress
-                  value={entry.rate}
-                  className={cn(
-                    "h-1.5",
-                    entry.rate >= 80 && "[&>div]:bg-success",
-                    entry.rate >= 50 && entry.rate < 80 && "[&>div]:bg-warning",
-                    entry.rate < 50 && "[&>div]:bg-destructive",
-                  )}
-                />
-                <p className="mt-1.5 text-[11px] text-muted-foreground">
-                  {getCareGapMeasureDescription(entry.measure, entry.measureName)}
-                </p>
-                <p className="text-[11px] text-muted-foreground">
-                  {entry.compliant}/{entry.eligible} patients compliant
-                </p>
-              </div>
-            ))}
-          </div>
+        <CardContent className="p-0">
+          <iframe
+            src={`${CHARTS_BASE_URL}/embed/dashboards?id=${CARE_GAP_DASHBOARD_ID}&theme=light&autoRefresh=true&maxDataAge=3600`}
+            className="w-full rounded-b-lg"
+            style={{ height: "720px", border: "none" }}
+            title="Care Gap Analytics Dashboard"
+          />
         </CardContent>
       </Card>
 
@@ -657,54 +609,3 @@ function formatDueDate(dueBy: string | null | undefined): string {
 /*  Compliance calculation                                             */
 /* ------------------------------------------------------------------ */
 
-type MeasureCompliance = {
-  measure: string
-  measureName: string
-  eligible: number
-  compliant: number
-  rate: number
-}
-
-function computeComplianceStats(patients: Patient360[]): {
-  overall: number
-  perMeasure: MeasureCompliance[]
-} {
-  const measureMap = new Map<string, { eligible: number; compliant: number; name: string }>()
-
-  patients.forEach((patient) => {
-    const relevantMeasures = new Set<string>()
-
-    patient.care_gaps.forEach((gap) => {
-      relevantMeasures.add(gap.hedis_measure)
-      const entry = measureMap.get(gap.hedis_measure) ?? {
-        eligible: 0,
-        compliant: 0,
-        name: gap.measure_name,
-      }
-      entry.eligible += 1
-      // HEDIS numerator: any completed screening counts. `due_soon` means the
-      // screening was performed (just aging out), so it still satisfies
-      // compliance for this measurement period.
-      if (gap.status === "closed" || gap.status === "due_soon") {
-        entry.compliant += 1
-      }
-      measureMap.set(gap.hedis_measure, entry)
-    })
-  })
-
-  const perMeasure: MeasureCompliance[] = Array.from(measureMap.entries()).map(
-    ([measure, data]) => ({
-      measure,
-      measureName: data.name,
-      eligible: data.eligible,
-      compliant: data.compliant,
-      rate: data.eligible > 0 ? Math.round((data.compliant / data.eligible) * 100) : 100,
-    }),
-  )
-
-  const totalEligible = perMeasure.reduce((sum, entry) => sum + entry.eligible, 0)
-  const totalCompliant = perMeasure.reduce((sum, entry) => sum + entry.compliant, 0)
-  const overall = totalEligible > 0 ? Math.round((totalCompliant / totalEligible) * 100) : 100
-
-  return { overall, perMeasure }
-}
