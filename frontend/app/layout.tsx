@@ -12,7 +12,7 @@ export const metadata: Metadata = {
   title: 'Clinical Operations Platform',
   description: 'Unified clinical monitoring platform for remote patient monitoring with real-time vitals, CDS alerts, and HEDIS care gap tracking.',
   icons: {
-    icon: '/icon.svg',
+    icon: '/icon.png',
   },
 }
 
