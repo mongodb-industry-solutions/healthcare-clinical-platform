@@ -3,7 +3,6 @@ import { Geist, Geist_Mono } from 'next/font/google'
 import { Toaster } from 'sonner'
 import { DemoProvider } from '@/lib/demo-context'
 import { SimulationProvider } from '@/lib/simulation-context'
-import { LoginModal } from '@/components/login/login-modal'
 import './globals.css'
 
 const geistSans = Geist({ subsets: ["latin"], variable: "--font-sans" })
@@ -34,7 +33,6 @@ export default function RootLayout({
         <DemoProvider>
           <SimulationProvider>
             {children}
-            <LoginModal />
             <Toaster richColors closeButton position="top-right" />
           </SimulationProvider>
         </DemoProvider>

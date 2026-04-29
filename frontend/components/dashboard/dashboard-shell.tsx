@@ -9,6 +9,7 @@ import {
   ChevronDown,
   ClipboardList,
   Home,
+  Presentation,
   Users,
 } from "lucide-react"
 
@@ -29,7 +30,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 
 const navigation = [
-  { title: "Dashboard", href: "/", icon: Home },
+  { title: "Demo Overview", href: "/demo-overview", icon: Presentation },
+  { title: "Dashboard", href: "/dashboard", icon: Home },
   { title: "Population View", href: "/patients", icon: Users },
   { title: "Care Gaps", href: "/care-gaps", icon: ClipboardList },
 ]
@@ -81,7 +83,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       <header className="z-30 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="flex h-14 items-center gap-4 px-4 lg:px-6">
           {/* Left: Logo */}
-          <Link href="/" className="flex items-center gap-2 shrink-0">
+          <Link href="/demo-overview" className="flex items-center gap-2 shrink-0">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
               <Activity className="h-4 w-4" />
             </div>
