@@ -1,5 +1,5 @@
 services:
-  demoname-backend:
+  cds-backend-service:
     build:
       context: .
       no_cache: true
@@ -12,14 +12,21 @@ services:
     ports:
       - "8000:8000"
     restart: always
-    container_name: demoname-backend
-  demoname-frontend:
+    container_name: cds-backend-container
+    env_file:
+      - .env
+  cds-frontend-service:
     build:
       context: .
       no_cache: true
       dockerfile: Dockerfile.frontend
-    image: imagename-frontend:latest
+      args:
+        - NEXT_PUBLIC_API_URL=http://localhost:8080
+    image: cds-frontend:latest
     ports:
       - "3000:3000"
     restart: always
-    container_name: demoname-frontend
+    container_name: cds-frontend-container
+
+networks:
+  healthcare_cds:

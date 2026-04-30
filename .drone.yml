@@ -7,7 +7,6 @@ trigger:
   branch:
     - staging
 
-# replace <your-demo-name> with your demo name for eg.: multi-agent-predictive-maintenance
 steps:
   # Step 1: Build and publish backend Docker image
   - name: publish-backend
@@ -15,7 +14,7 @@ steps:
     settings:
       create_repository: true
       registry: 795250896452.dkr.ecr.us-east-1.amazonaws.com
-      repo: industrysolutions/<your-demo-name>-backend
+      repo: industrysolutions/cds-healthcare-backend
       dockerfile: Dockerfile.backend
       context: .
       tags:
@@ -35,7 +34,7 @@ steps:
     settings:
       create_repository: true
       registry: 795250896452.dkr.ecr.us-east-1.amazonaws.com
-      repo: industrysolutions/<your-demo-name>-frontend
+      repo: industrysolutions/cds-healthcare-frontend
       dockerfile: Dockerfile.frontend
       context: .
       tags:
@@ -57,16 +56,16 @@ steps:
       chart_version: 4.25.0
       add_repos: [mongodb=https://10gen.github.io/helm-charts]
       namespace: industrysolutions
-      release: <your-demo-name>
+      release: cds-healthcare-platform
       values_files: ["environment/staging.yaml"]
       values:
         - "sidecarContainers[0].name=backend"
-        - "sidecarContainers[0].image=795250896452.dkr.ecr.us-east-1.amazonaws.com/industrysolutions/<your-demo-name>-backend:git-${DRONE_COMMIT_SHA:0:7}"
+        - "sidecarContainers[0].image=795250896452.dkr.ecr.us-east-1.amazonaws.com/industrysolutions/cds-healthcare-backend:git-${DRONE_COMMIT_SHA:0:7}"
         - "sidecarContainers[0].containerPort=8000"
         - "image.tag=git-${DRONE_COMMIT_SHA:0:7}"
         - "image.repository=795250896452.dkr.ecr.us-east-1.amazonaws.com/industrysolutions/<your-demo-name>-frontend"
         - "ingress.enabled=true"
-        - "ingress.hosts[0]=<your-demo-name>.industrysolutions.staging.corp.mongodb.com"
+        - "ingress.hosts[0]=cds-platform.industrysolutions.staging.corp.mongodb.com"
         - "mesh.enabled=true"
         # Frontend resources (reduced defaults for demos - increase if OOMKilled)
         - "resources.limits.cpu=500m"
@@ -105,7 +104,7 @@ steps:
     settings:
       create_repository: true
       registry: 795250896452.dkr.ecr.us-east-1.amazonaws.com
-      repo: industrysolutions/<your-demo-name>-backend-prod
+      repo: industrysolutions/cds-healthcare-backend-prod
       dockerfile: Dockerfile.backend
       context: .
       tags:
@@ -125,7 +124,7 @@ steps:
     settings:
       create_repository: true
       registry: 795250896452.dkr.ecr.us-east-1.amazonaws.com
-      repo: industrysolutions/<your-demo-name>-frontend-prod
+      repo: industrysolutions/cds-healthcare-frontend-prod
       dockerfile: Dockerfile.frontend
       context: .
       tags:
@@ -147,14 +146,14 @@ steps:
       chart_version: 4.25.0
       add_repos: [mongodb=https://10gen.github.io/helm-charts]
       namespace: industrysolutions
-      release: <your-demo-name>-prod
+      release: cds-platform-prod
       values_files: ["environment/production.yaml"]
       values:
-        - "sidecarContainers[0].image=795250896452.dkr.ecr.us-east-1.amazonaws.com/industrysolutions/<your-demo-name>-backend-prod:git-${DRONE_COMMIT_SHA:0:7}"
+        - "sidecarContainers[0].image=795250896452.dkr.ecr.us-east-1.amazonaws.com/industrysolutions/cds-healthcare-backend-prod:git-${DRONE_COMMIT_SHA:0:7}"
         - "image.tag=git-${DRONE_COMMIT_SHA:0:7}"
-        - "image.repository=795250896452.dkr.ecr.us-east-1.amazonaws.com/industrysolutions/<your-demo-name>-frontend-prod"
+        - "image.repository=795250896452.dkr.ecr.us-east-1.amazonaws.com/industrysolutions/cds-healthcare-frontend-prod"
         - "ingress.enabled=true"
-        - "ingress.hosts[0]=<your-demo-name>.industrysolutions.prod.corp.mongodb.com"
+        - "ingress.hosts[0]=cds-platform.industrysolutions.prod.corp.mongodb.com"
         - "mesh.enabled=true"
         # Frontend resources (production - slightly higher for reliability)
         - "resources.limits.cpu=500m"
