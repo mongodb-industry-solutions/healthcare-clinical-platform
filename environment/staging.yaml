@@ -2,8 +2,6 @@ env:
   NODE_ENV: staging
   AWS_REGION: us-east-1
   NEXT_PUBLIC_API_URL: "http://localhost:8000"
-  QE_ENABLED: "true"
-  APP_NAME: "IST-Shared"
 
 ## Single Pod Containers
 envSecrets:
@@ -26,6 +24,12 @@ sidecarContainers:
           secretKeyRef:
             name: cds-platform-secrets
             key: DATABASE_NAME
+
+      - name: APP_NAME
+        value: "IST-Shared"
+
+      - name: QE_ENABLED
+        value: "true"
 
 # Add IRSA configuration here, role here gives access to bedrock, s3, aws secrets manager
 serviceAccount:
