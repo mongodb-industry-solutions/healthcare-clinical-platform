@@ -63,7 +63,7 @@ steps:
         - "sidecarContainers[0].image=795250896452.dkr.ecr.us-east-1.amazonaws.com/industrysolutions/cds-healthcare-backend:git-${DRONE_COMMIT_SHA:0:7}"
         - "sidecarContainers[0].containerPort=8000"
         - "image.tag=git-${DRONE_COMMIT_SHA:0:7}"
-        - "image.repository=795250896452.dkr.ecr.us-east-1.amazonaws.com/industrysolutions/<your-demo-name>-frontend"
+        - "image.repository=795250896452.dkr.ecr.us-east-1.amazonaws.com/industrysolutions/cds-healthcare-frontend"
         - "ingress.enabled=true"
         - "ingress.hosts[0]=cds-platform.industrysolutions.staging.corp.mongodb.com"
         - "mesh.enabled=true"
