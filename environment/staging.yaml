@@ -5,6 +5,13 @@ env:
   QE_ENABLED: "true"
   APP_NAME: "IST-Shared"
 
+security:
+  dataClassification: "Internal"
+  dataDesignation: ["MI"]
+
+ownership:
+  driEmail: gio.rodriguez@mongodb.com
+
 ## Single Pod Containers
 envSecrets:
   MONGODB_URI: cds-platform-secrets
