@@ -11,7 +11,7 @@
 
 import type { Patient360, VitalsTimeSeries } from "./mock-data"
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+const BASE_URL = "/api/backend"
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
