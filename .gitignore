@@ -241,3 +241,6 @@ frontend/next-env.d.ts
 
 # Misc
 *.pem
+
+# MongoDB Crypt Shared Library (Queryable Encryption)
+.crypt_shared/

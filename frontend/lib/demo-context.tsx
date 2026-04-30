@@ -16,13 +16,13 @@ export const PERSONAS: Persona[] = [
     name: "Frida",
     role: "physician",
     initials: "FR",
-    description: "Physician view",
+    description: "Care Coordinator",
   },
   {
     name: "Diego",
     role: "patient",
     initials: "DI",
-    description: "Patient view",
+    description: "Clinical Observer",
   },
 ]
 
@@ -44,10 +44,10 @@ export interface SeedConfig {
 
 export const DEFAULT_SEED_CONFIG: SeedConfig = {
   batches: [
-    { profile_type: "target", count: 2, vitals_pattern: "deteriorating" },
+    { profile_type: "target", count: 3, vitals_pattern: "deteriorating" },
     { profile_type: "cardiac", count: 2, vitals_pattern: "deteriorating" },
     { profile_type: "diabetic", count: 2, vitals_pattern: "deteriorating" },
-    { profile_type: "healthy", count: 3, vitals_pattern: "normal" },
+    { profile_type: "healthy", count: 1, vitals_pattern: "normal" },
   ],
   vitals_hours: 24,
   vitals_interval_minutes: 5,
@@ -65,7 +65,7 @@ interface DemoContextValue {
   step: DemoStep
   seedConfig: SeedConfig
   seedProgress: SeedProgress | null
-  /** Incremented after every successful seed — use as useEffect dependency to re-fetch data */
+  /** Incremented after every successful seed or live alert — use as useEffect dependency to re-fetch data */
   dataVersion: number
   selectPersona: (persona: Persona) => void
   goToConfig: () => void
@@ -73,6 +73,7 @@ interface DemoContextValue {
   startSeeding: () => void
   setSeedProgress: (progress: SeedProgress | null) => void
   finishSeeding: () => void
+  bumpDataVersion: () => void
   logout: () => void
 }
 
@@ -153,6 +154,10 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
     setDataVersion((v) => v + 1)
   }, [])
 
+  const bumpDataVersion = React.useCallback(() => {
+    setDataVersion((v) => v + 1)
+  }, [])
+
   const logout = React.useCallback(() => {
     setPersona(null)
     setStep("persona")
@@ -173,9 +178,10 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
       startSeeding,
       setSeedProgress,
       finishSeeding,
+      bumpDataVersion,
       logout,
     }),
-    [persona, step, seedConfig, seedProgress, dataVersion, selectPersona, goToConfig, startSeeding, finishSeeding, logout],
+    [persona, step, seedConfig, seedProgress, dataVersion, selectPersona, goToConfig, startSeeding, finishSeeding, bumpDataVersion, logout],
   )
 
   // Don't render children until hydrated to avoid flash of login modal

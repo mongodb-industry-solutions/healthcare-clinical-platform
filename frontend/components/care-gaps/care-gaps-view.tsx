@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import {
   AlertTriangle,
   Calendar,
@@ -28,7 +29,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Progress } from "@/components/ui/progress"
 import {
   Table,
   TableBody,
@@ -39,6 +39,13 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { type Patient360 } from "@/lib/mock-data"
+import {
+  getCareGapMeasureDashboardLabel,
+  getEffectiveGapState,
+} from "@/lib/care-gap-measures"
+
+const CHARTS_BASE_URL = process.env.NEXT_PUBLIC_CHARTS_BASE_URL || "https://charts.mongodb.com/charts-jeffn-zsdtj"
+const CARE_GAP_DASHBOARD_ID = process.env.NEXT_PUBLIC_CHARTS_CARE_GAP_DASHBOARD_ID || "40eef755-0404-41ff-b74a-dbfbc4d309a4"
 
 type CareGapWithPatient = {
   gap: Patient360["care_gaps"][number]
@@ -50,32 +57,32 @@ type ScheduledAction = {
   action: "scheduled" | "ordered"
 }
 
-const MEASURE_META: Record<string, { name: string; description: string }> = {
-  "CDC-HBA": { name: "HbA1c Testing", description: "Comprehensive Diabetes Care — HbA1c every 6 months" },
-  KED: { name: "Kidney Evaluation", description: "Annual eGFR + uACR for diabetic patients" },
-  CBP: { name: "Blood Pressure Control", description: "BP target < 140/90 for diabetic patients" },
-  SPD: { name: "Statin Therapy", description: "Diabetic patients 40–75 should be on statin" },
-  EED: { name: "Eye Exam", description: "Annual retinal exam for diabetics" },
-}
-
 export function CareGapsView() {
   const { dataVersion } = useDemo()
+  const searchParams = useSearchParams()
   const [patients, setPatients] = React.useState<Patient360[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [scheduledActions, setScheduledActions] = React.useState<Record<string, ScheduledAction>>({})
   const [dialogTarget, setDialogTarget] = React.useState<{ item: CareGapWithPatient; action: "schedule" | "order" } | null>(null)
 
+  const dashboardSource = searchParams.get("source") === "dashboard"
+  const focusedMeasures = React.useMemo(
+    () =>
+      (searchParams.get("measures") ?? "")
+        .split(",")
+        .map((measure) => measure.trim())
+        .filter(Boolean),
+    [searchParams],
+  )
+
   React.useEffect(() => {
-    setLoading(true)
+    if (patients.length === 0) setLoading(true)
     fetchAllPatients({ limit: 500 })
-      .then((data) => {
-        setPatients(data)
-        setError(null)
-      })
+      .then((data) => { setPatients(data); setError(null) })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
-  }, [dataVersion])
+  }, [dataVersion]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const allGaps: CareGapWithPatient[] = React.useMemo(() => {
     const gaps: CareGapWithPatient[] = []
@@ -96,25 +103,34 @@ export function CareGapsView() {
     () => allGaps.filter((g) => g.gap.status === "open"),
     [allGaps],
   )
+  const focusedOpenGaps = React.useMemo(
+    () =>
+      focusedMeasures.length > 0
+        ? openGaps.filter((item) => focusedMeasures.includes(item.gap.hedis_measure))
+        : openGaps,
+    [focusedMeasures, openGaps],
+  )
+  const focusedMeasureLabels = React.useMemo(
+    () => focusedMeasures.map((measure) => getCareGapMeasureDashboardLabel(measure)),
+    [focusedMeasures],
+  )
 
   const overdueGaps = React.useMemo(
     () => openGaps.filter((g) => g.gap.days_overdue > 0),
     [openGaps],
   )
 
+  // Real DEQM "prospective" gaps emitted by the quality engine
+  // (`status === "due_soon"`, screening completed, closing within 60 days).
+  // Effective state guards against any closed-uncontrolled override.
   const dueSoonGaps = React.useMemo(
-    () => openGaps.filter((g) => g.gap.days_overdue <= 0),
-    [openGaps],
+    () => allGaps.filter((g) => getEffectiveGapState(g.gap) === "due_soon"),
+    [allGaps],
   )
 
   const closedGaps = React.useMemo(
     () => allGaps.filter((g) => g.gap.status === "closed"),
     [allGaps],
-  )
-
-  const complianceStats = React.useMemo(
-    () => computeComplianceStats(patients),
-    [patients],
   )
 
   if (loading) {
@@ -149,8 +165,6 @@ export function CareGapsView() {
     setDialogTarget(null)
   }
 
-  const scheduledCount = Object.keys(scheduledActions).length
-
   return (
     <div className="flex flex-col gap-6 p-6">
       <div>
@@ -160,8 +174,36 @@ export function CareGapsView() {
         </p>
       </div>
 
+      {dashboardSource && (
+        <Card className="border-border/60 bg-white shadow-sm">
+          <CardContent className="flex flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                  <ClipboardList className="h-4 w-4 text-primary" />
+                  <span className="whitespace-nowrap">Handoff from Clinical Quality Operations</span>
+                </div>
+                {focusedMeasureLabels.slice(0, 3).map((label) => (
+                  <Badge key={label} variant="secondary" className="border border-[#CFF5DD] bg-[#F2FFF8] text-[#0F5A3C]">
+                    {label}
+                  </Badge>
+                ))}
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {focusedMeasureLabels.length > 0
+                  ? `This view continues the priorities surfaced on the dashboard. ${focusedOpenGaps.length} open gap${focusedOpenGaps.length === 1 ? "" : "s"} match the current focus.`
+                  : "Continue working the open care gaps that were elevated on the dashboard."}
+              </p>
+            </div>
+            <Button asChild variant="outline" size="sm" className="w-full lg:w-auto lg:shrink-0">
+              <Link href="/">Return to dashboard</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {/* ---- Stats row ---- */}
-      <div className="grid gap-4 md:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Open Gaps</CardTitle>
@@ -175,14 +217,23 @@ export function CareGapsView() {
         </Card>
         <Card className={cn(overdueGaps.length > 0 && "border-destructive/50")}>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Overdue</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Avg Days Overdue</CardTitle>
           </CardHeader>
           <CardContent>
-            <span className={cn("text-3xl font-bold", overdueGaps.length > 0 && "text-destructive")}>{overdueGaps.length}</span>
-            {overdueGaps.length > 0 && (
-              <p className="text-xs text-muted-foreground mt-1">
-                Avg {Math.round(overdueGaps.reduce((s, g) => s + g.gap.days_overdue, 0) / overdueGaps.length)}d overdue
-              </p>
+            {overdueGaps.length > 0 ? (
+              <>
+                <span className="text-3xl font-bold text-destructive">
+                  {Math.round(overdueGaps.reduce((s, g) => s + g.gap.days_overdue, 0) / overdueGaps.length)}d
+                </span>
+                <p className="text-xs text-muted-foreground mt-1">
+                  across {overdueGaps.length} overdue gap{overdueGaps.length === 1 ? "" : "s"}
+                </p>
+              </>
+            ) : (
+              <>
+                <span className="text-3xl font-bold text-green-600 dark:text-green-400">—</span>
+                <p className="text-xs text-muted-foreground mt-1">No overdue gaps</p>
+              </>
             )}
           </CardContent>
         </Card>
@@ -191,7 +242,12 @@ export function CareGapsView() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Due Soon</CardTitle>
           </CardHeader>
           <CardContent>
-            <span className="text-3xl font-bold text-warning">{dueSoonGaps.length}</span>
+            <span className="text-3xl font-bold text-blue-600 dark:text-blue-400">
+              {dueSoonGaps.length}
+            </span>
+            <p className="text-xs text-muted-foreground mt-1">
+              Screening on file, closing in &lt;60d
+            </p>
           </CardContent>
         </Card>
         <Card className={cn(closedGaps.length > 0 && "border-green-500/30")}>
@@ -207,77 +263,21 @@ export function CareGapsView() {
             </p>
           </CardContent>
         </Card>
-        <Card className={cn(scheduledCount > 0 && "border-primary/50")}>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Scheduled / Ordered
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <span className={cn("text-3xl font-bold", scheduledCount > 0 && "text-primary")}>
-              {scheduledCount}
-            </span>
-          </CardContent>
-        </Card>
       </div>
 
-      {/* ---- Compliance scorecard ---- */}
+      {/* ---- Atlas Charts dashboard ---- */}
       <Card>
         <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-base font-medium">HEDIS Compliance</CardTitle>
-              <CardDescription>
-                Population-level compliance across all tracked measures
-              </CardDescription>
-            </div>
-            <div className="text-right">
-              <span className="text-3xl font-bold tabular-nums">
-                {complianceStats.overall}%
-              </span>
-              <p className="text-xs text-muted-foreground mt-0.5">overall</p>
-            </div>
-          </div>
+          <CardTitle className="text-base font-medium">Care Gap Analytics</CardTitle>
+          <CardDescription>Population-level insights powered by MongoDB Atlas Charts</CardDescription>
         </CardHeader>
-        <CardContent>
-          <Progress value={complianceStats.overall} className="h-2.5 mb-5" />
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {complianceStats.perMeasure.map((entry) => (
-              <div key={entry.measure} className="rounded-lg border p-3">
-                <div className="flex items-center justify-between mb-1.5">
-                  <div className="flex items-center gap-2">
-                    <ClipboardList className="h-3.5 w-3.5 text-muted-foreground" />
-                    <span className="text-sm font-medium">{entry.measure}</span>
-                  </div>
-                  <span
-                    className={cn(
-                      "text-sm font-semibold tabular-nums",
-                      entry.rate >= 80 && "text-success",
-                      entry.rate >= 50 && entry.rate < 80 && "text-warning",
-                      entry.rate < 50 && "text-destructive",
-                    )}
-                  >
-                    {entry.rate}%
-                  </span>
-                </div>
-                <Progress
-                  value={entry.rate}
-                  className={cn(
-                    "h-1.5",
-                    entry.rate >= 80 && "[&>div]:bg-success",
-                    entry.rate >= 50 && entry.rate < 80 && "[&>div]:bg-warning",
-                    entry.rate < 50 && "[&>div]:bg-destructive",
-                  )}
-                />
-                <p className="mt-1.5 text-[11px] text-muted-foreground">
-                  {MEASURE_META[entry.measure]?.description ?? entry.measureName}
-                </p>
-                <p className="text-[11px] text-muted-foreground">
-                  {entry.compliant}/{entry.eligible} patients compliant
-                </p>
-              </div>
-            ))}
-          </div>
+        <CardContent className="p-0">
+          <iframe
+            src={`${CHARTS_BASE_URL}/embed/dashboards?id=${CARE_GAP_DASHBOARD_ID}&theme=light&autoRefresh=true&maxDataAge=3600`}
+            className="w-full rounded-b-lg"
+            style={{ height: "720px", border: "none" }}
+            title="Care Gap Analytics Dashboard"
+          />
         </CardContent>
       </Card>
 
@@ -495,6 +495,18 @@ function GapTable({
                         <CheckCircle2 className="h-3 w-3" />
                         {action.action === "scheduled" ? "Scheduled" : "Ordered"}
                       </Badge>
+                    ) : getEffectiveGapState(item.gap) === "closed_uncontrolled" ? (
+                      <Badge variant="outline" className="gap-1 border-amber-400 text-amber-700 dark:text-amber-400">
+                        <AlertTriangle className="h-3 w-3" />
+                        Closed — flagged
+                      </Badge>
+                    ) : getEffectiveGapState(item.gap) === "due_soon" ? (
+                      <Badge variant="outline" className="gap-1 border-blue-300 text-blue-700 dark:text-blue-400 dark:border-blue-700">
+                        <Calendar className="h-3 w-3" />
+                        {item.gap.days_until_due
+                          ? `Due in ${item.gap.days_until_due}d`
+                          : "Due soon"}
+                      </Badge>
                     ) : item.gap.status === "closed" ? (
                       <Badge variant="outline" className="gap-1 border-green-500/40 text-green-600 dark:text-green-400">
                         <CheckCircle2 className="h-3 w-3" />
@@ -514,9 +526,30 @@ function GapTable({
                   <TableCell className="text-right">
                     {action ? (
                       <span className="text-xs text-muted-foreground">Action taken</span>
+                    ) : getEffectiveGapState(item.gap) === "due_soon" ? (
+                      <div className="flex items-center justify-end gap-1.5">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 gap-1"
+                          onClick={() => onAction({ item, action: "schedule" })}
+                        >
+                          <CalendarPlus className="h-3.5 w-3.5" />
+                          Pre-schedule
+                        </Button>
+                        <Button variant="ghost" size="icon" asChild className="h-8 w-8">
+                          <Link href={`/patients/${item.patient.patient_id}`}>
+                            <ChevronRight className="h-4 w-4" />
+                          </Link>
+                        </Button>
+                      </div>
                     ) : item.gap.status === "closed" ? (
                       <div className="flex items-center justify-end gap-1.5">
-                        <span className="text-xs text-muted-foreground">Up to date</span>
+                        <span className="text-xs text-muted-foreground">
+                          {getEffectiveGapState(item.gap) === "closed_uncontrolled"
+                            ? "Review result"
+                            : "Up to date"}
+                        </span>
                         <Button variant="ghost" size="icon" asChild className="h-8 w-8">
                           <Link href={`/patients/${item.patient.patient_id}`}>
                             <ChevronRight className="h-4 w-4" />
@@ -576,51 +609,3 @@ function formatDueDate(dueBy: string | null | undefined): string {
 /*  Compliance calculation                                             */
 /* ------------------------------------------------------------------ */
 
-type MeasureCompliance = {
-  measure: string
-  measureName: string
-  eligible: number
-  compliant: number
-  rate: number
-}
-
-function computeComplianceStats(patients: Patient360[]): {
-  overall: number
-  perMeasure: MeasureCompliance[]
-} {
-  const measureMap = new Map<string, { eligible: number; compliant: number; name: string }>()
-
-  patients.forEach((patient) => {
-    const relevantMeasures = new Set<string>()
-
-    patient.care_gaps.forEach((gap) => {
-      relevantMeasures.add(gap.hedis_measure)
-      const entry = measureMap.get(gap.hedis_measure) ?? {
-        eligible: 0,
-        compliant: 0,
-        name: gap.measure_name,
-      }
-      entry.eligible += 1
-      if (gap.status === "closed") {
-        entry.compliant += 1
-      }
-      measureMap.set(gap.hedis_measure, entry)
-    })
-  })
-
-  const perMeasure: MeasureCompliance[] = Array.from(measureMap.entries()).map(
-    ([measure, data]) => ({
-      measure,
-      measureName: data.name,
-      eligible: data.eligible,
-      compliant: data.compliant,
-      rate: data.eligible > 0 ? Math.round((data.compliant / data.eligible) * 100) : 100,
-    }),
-  )
-
-  const totalEligible = perMeasure.reduce((sum, entry) => sum + entry.eligible, 0)
-  const totalCompliant = perMeasure.reduce((sum, entry) => sum + entry.compliant, 0)
-  const overall = totalEligible > 0 ? Math.round((totalCompliant / totalEligible) * 100) : 100
-
-  return { overall, perMeasure }
-}

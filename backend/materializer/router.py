@@ -19,9 +19,9 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel
 
-from db.mdb import MongoDBConnector
 from materializer.models import (
     MaterializeAllRequest,
     MaterializeAllResponse,
@@ -31,9 +31,9 @@ from materializer.repository import MaterializerRepository
 from materializer.service import MaterializerService
 
 
-def get_materializer_service() -> MaterializerService:
-    """FastAPI dependency — constructs the full service + repo stack."""
-    return MaterializerService(MaterializerRepository(MongoDBConnector()))
+def get_materializer_service(request: Request) -> MaterializerService:
+    """FastAPI dependency — uses the shared (possibly encrypted) DB connector."""
+    return MaterializerService(MaterializerRepository(request.app.state.db))
 
 
 router = APIRouter(prefix="/materializer", tags=["Patient 360 Materializer"])
@@ -119,9 +119,61 @@ async def get_patient_360(
     return doc
 
 
+@router.get("/patients/{patient_id}/provenance", response_model=dict[str, Any])
+async def get_patient_provenance(
+    patient_id: str,
+    svc: MaterializerService = Depends(get_materializer_service),
+) -> dict[str, Any]:
+    """
+    Return the data_provenance block from a Patient 360 document.
+
+    This endpoint makes the dual-layer architecture explicit:
+    - Layer A (FHIR exchange): synthetic_patients collection
+    - Layer B (CDS operational): patient_360 collection
+    """
+    doc = svc.get_patient_360(patient_id)
+    if not doc:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Patient 360 for {patient_id!r} not found.",
+        )
+    provenance = doc.get("data_provenance", {})
+    return {
+        "patient_id": patient_id,
+        "provenance": provenance,
+        "layer_a": {
+            "collection": "synthetic_patients",
+            "description": "Raw FHIR bundles — canonical exchange format for interoperability and audit",
+        },
+        "layer_b": {
+            "collection": "patient_360",
+            "description": "Derived CDS operational store optimized for care-gap evaluation, alerting, and workflow",
+        },
+    }
+
+
 @router.get("/status", response_model=dict[str, int])
 async def get_status(
     svc: MaterializerService = Depends(get_materializer_service),
 ) -> dict[str, int]:
     """Return the count of materialized Patient 360 documents."""
     return svc.get_status()
+
+
+# ---------------------------------------------------------------------------
+# Simulation pattern
+# ---------------------------------------------------------------------------
+
+class SetSimulationPatternRequest(BaseModel):
+    patient_ids: list[str]
+    pattern: str = "deteriorating"
+
+
+@router.post("/patients/simulation-pattern")
+async def set_simulation_pattern(
+    body: SetSimulationPatternRequest,
+    svc: MaterializerService = Depends(get_materializer_service),
+) -> dict[str, Any]:
+    """Set the simulation_pattern on patient_360 for the given patient IDs."""
+    modified = svc._repo.set_simulation_pattern(body.patient_ids, body.pattern)
+    return {"modified": modified, "pattern": body.pattern}

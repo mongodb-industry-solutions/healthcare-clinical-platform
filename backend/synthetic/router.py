@@ -26,7 +26,7 @@ import logging
 import threading
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
 from cds.repository import CDSRepository
@@ -40,16 +40,15 @@ from synthetic.models import (
     PatientSummary,
     StatusResponse,
 )
-from db.mdb import MongoDBConnector
 from synthetic.repository import SyntheticRepository
 from synthetic.service import SyntheticService
 
 logger = logging.getLogger(__name__)
 
 
-def get_synthetic_service() -> SyntheticService:
-    """FastAPI dependency — constructs the full service + repo stack."""
-    return SyntheticService(SyntheticRepository(MongoDBConnector()))
+def get_synthetic_service(request: Request) -> SyntheticService:
+    """FastAPI dependency — uses the shared (possibly encrypted) DB connector."""
+    return SyntheticService(SyntheticRepository(request.app.state.db))
 
 router = APIRouter(prefix="/synthetic", tags=["Synthetic Data Generator"])
 
@@ -207,7 +206,8 @@ async def stream_vitals(
         raise HTTPException(400, "patient_ids is required")
 
     async def event_generator():
-        db = MongoDBConnector()
+        from main import app as _app
+        db = _app.state.db
         synth_svc = SyntheticService(SyntheticRepository(db))
         mat_repo = MaterializerRepository(db)
         cds_svc = CDSService(CDSRepository(db))

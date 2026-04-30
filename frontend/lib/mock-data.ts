@@ -46,6 +46,9 @@ export interface Patient360 {
   }
   active_alerts: Alert[]
   care_gaps: CareGap[]
+  interventions?: {
+    ked_workflow?: KedWorkflow
+  }
   encounters: Encounter[]
   created_at: string
   updated_at: string
@@ -110,14 +113,90 @@ export interface Alert {
   status: "new" | "acknowledged" | "resolved"
 }
 
+export interface CareGapEvidence {
+  found: string[]
+  missing: string[]
+  source_resources: string[]
+}
+
+export type CareGapResultComparator = "lt" | "lte" | "gt" | "gte"
+
+export interface CareGapResultEvaluationComponent {
+  loinc: string
+  label: string
+  value: number | null
+  unit: string | null
+  target: number
+  comparator: CareGapResultComparator
+  met: boolean
+  measured_at: string | null
+}
+
+export interface CareGapResultEvaluation {
+  controlled: boolean
+  label: string
+  components: CareGapResultEvaluationComponent[]
+  uncontrolled_action: string | null
+}
+
+export interface CareGapAlertCorrelation {
+  alert_id: string
+  rule_id: string
+  title: string
+  severity: string
+  reasoning: string
+}
+
+export interface CareGapClosureEvent {
+  closed_at: string
+  closed_by: string
+  closed_by_role?: string | null
+  workflow: string
+  evidence_snapshot: string[]
+  result_evaluation?: CareGapResultEvaluation | null
+}
+
 export interface CareGap {
   hedis_measure: string
   measure_name: string
-  status: "open" | "closed"
+  description: string
+  status: "open" | "closed" | "due_soon"
   last_completed: string | null
   due_by: string
   days_overdue: number
-  priority: "critical" | "high" | "medium" | "low"
+  days_until_due?: number
+  priority: "critical" | "high" | "moderate" | "medium" | "low"
+  measurement_period: string | null
+  evidence: CareGapEvidence
+  reason: string | null
+  recommended_action: string | null
+  confidence: "high" | "medium" | "low"
+  recompute_after: string | null
+  workflow_status?: "not_started" | "ordered" | "completed" | "reviewed"
+  follow_up?: {
+    recommended: boolean
+    reason: string | null
+    status: "not_needed" | "pending_review" | "reviewed"
+  }
+  result_evaluation?: CareGapResultEvaluation | null
+  correlated_alerts?: CareGapAlertCorrelation[]
+  closure_history?: CareGapClosureEvent[]
+}
+
+export interface KedWorkflow {
+  status?: "not_started" | "ordered" | "completed" | "reviewed" | string
+  ordered_at?: string | null
+  completed_at?: string | null
+  last_updated_at?: string | null
+  ordered_by?: string | null
+  completed_by?: string | null
+  latest_result_profile?: string | null
+  latest_result_ids?: string[]
+  required_evidence?: string[]
+  missing_evidence?: string[]
+  follow_up_recommended?: boolean
+  follow_up_reason?: string | null
+  follow_up_summary?: Record<string, unknown> | null
 }
 
 export interface Encounter {

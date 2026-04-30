@@ -2,12 +2,29 @@ FROM python:3.13-slim
 
 WORKDIR /
 
+# System dependencies for pymongocrypt (Queryable Encryption)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Download MongoDB Crypt Shared Library (required for automatic encryption)
+ARG CRYPT_SHARED_VERSION=8.0.8
+ARG TARGETARCH
+RUN ARCH=$([ "$TARGETARCH" = "arm64" ] && echo "aarch64" || echo "x86_64") \
+    && OS=$([ "$TARGETARCH" = "arm64" ] && echo "ubuntu2204" || echo "debian12") \
+    && CRYPT_SHARED_URL="https://downloads.mongodb.com/linux/mongo_crypt_shared_v1-linux-${ARCH}-enterprise-${OS}-${CRYPT_SHARED_VERSION}.tgz" \
+    && curl -fsSL "$CRYPT_SHARED_URL" -o /tmp/crypt_shared.tgz \
+    && tar -xzf /tmp/crypt_shared.tgz -C /tmp \
+    && find /tmp -name "mongo_crypt_v1.so" -exec mv {} /usr/local/lib/mongo_crypt_v1.so \; \
+    && rm -rf /tmp/crypt_shared.tgz /tmp/mongo_crypt_shared_v1-*
+
+ENV CRYPT_SHARED_LIB_PATH=/usr/local/lib/mongo_crypt_v1.so
+
 # uv installation
 RUN pip install uv
 
 # Copy project files
 COPY /backend/pyproject.toml ./
-
 # Install dependencies with uv
 RUN uv sync --no-dev
 
@@ -15,6 +32,6 @@ RUN uv sync --no-dev
 COPY ./backend/ .
 
 # if using multi-container setup expose 8000 instead
-EXPOSE 8080
+EXPOSE 8000
 
-CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

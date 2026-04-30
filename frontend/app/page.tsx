@@ -1,10 +1,5 @@
-import { DashboardShell } from "@/components/dashboard/dashboard-shell"
-import { DashboardOverview } from "@/components/dashboard/dashboard-overview"
+import { redirect } from "next/navigation"
 
-export default function DashboardPage() {
-  return (
-    <DashboardShell>
-      <DashboardOverview />
-    </DashboardShell>
-  )
+export default function RootPage() {
+  redirect("/demo-overview")
 }

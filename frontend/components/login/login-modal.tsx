@@ -7,13 +7,13 @@ import {
   Check,
   Circle,
   HeartPulse,
+  Hospital,
+  LineChart,
   Loader2,
   Minus,
   Plus,
-  Stethoscope,
   TriangleAlert,
   TrendingDown,
-  User,
   Users,
   Watch,
 } from "lucide-react"
@@ -31,9 +31,12 @@ import {
   generateVitals,
   materializePatient,
   seedCdsRules,
+  seedAttributions,
   computeThresholds,
   evaluatePatientCds,
   computePatientCareGaps,
+  setSimulationPattern,
+  startSimulation,
 } from "@/lib/api"
 import {
   Dialog,
@@ -110,14 +113,25 @@ const ROLE_META: Record<
   { icon: React.ElementType; gradient: string; ringColor: string }
 > = {
   physician: {
-    icon: Stethoscope,
+    icon: Hospital,
     gradient: "from-primary/20 to-primary/5",
     ringColor: "ring-primary/40",
   },
   patient: {
-    icon: User,
+    icon: LineChart,
     gradient: "from-chart-2/20 to-chart-2/5",
     ringColor: "ring-chart-2/40",
+  },
+}
+
+const PERSONA_MODE: Record<string, { label: string; detail: string }> = {
+  physician: {
+    label: "Seed & simulate",
+    detail: "Generates patients, evaluates care gaps and alerts, and starts live monitoring",
+  },
+  patient: {
+    label: "Explore existing data",
+    detail: "Works with existing data, no generation or simulation required",
   },
 }
 
@@ -131,6 +145,7 @@ function PersonaCard({
   disabled: boolean
 }) {
   const meta = ROLE_META[persona.role]
+  const mode = PERSONA_MODE[persona.role]
   const Icon = meta.icon
 
   return (
@@ -160,9 +175,15 @@ function PersonaCard({
           </AvatarFallback>
         </Avatar>
       </div>
-      <div className="text-center">
+      <div className="text-center space-y-1">
         <p className="text-lg font-semibold">{persona.name}</p>
         <p className="text-sm text-muted-foreground">{persona.description}</p>
+        <span className="inline-block rounded-full border border-primary/20 bg-primary/5 px-2.5 py-0.5 text-[11px] font-medium text-primary">
+          {mode.label}
+        </span>
+        <p className="text-[11px] text-muted-foreground/70 leading-snug max-w-[200px] mx-auto">
+          {mode.detail}
+        </p>
       </div>
     </button>
   )
@@ -179,11 +200,10 @@ function StepPersona() {
     <>
       <DialogHeader className="text-center items-center gap-1 pt-2">
         <DialogTitle className="text-2xl font-bold tracking-tight text-primary">
-          Welcome to Leafy Health
+          Clinical Operations Platform
         </DialogTitle>
-        <DialogDescription className="text-base max-w-sm">
-          A clinical monitoring platform showcasing MongoDB&apos;s document
-          model for healthcare
+        <DialogDescription className="text-base text-center max-w-lg mx-auto">
+          A clinical monitoring platform showcasing MongoDB&apos;s document model for healthcare
         </DialogDescription>
       </DialogHeader>
 
@@ -472,6 +492,8 @@ const PIPELINE_STEPS = [
   "Computing personalized thresholds",
   "Evaluating CDS rules (generating alerts)",
   "Computing HEDIS care gaps",
+  "Seeding provider attributions",
+  "Starting real-time monitoring",
 ]
 
 function StepSeeding() {
@@ -544,7 +566,7 @@ async function runSeedPipeline(
     detail: string
   }) => void,
 ) {
-  const total = 7
+  const total = 9
   const progress = (step: number, label: string, detail = "") =>
     onProgress({ currentStep: step, totalSteps: total, stepLabel: label, detail })
 
@@ -610,11 +632,26 @@ async function runSeedPipeline(
     await computePatientCareGaps(pid)
   }
 
+  // 8. Seed provider attributions
+  progress(8, "Seeding attributions", "Provider-patient relationships…")
+  await seedAttributions()
+
+  // 9. Set simulation patterns per batch and start real-time monitoring
+  progress(9, "Starting monitoring", "Launching simulation worker…")
+  for (const batch of config.batches) {
+    if (batch.count === 0) continue
+    const batchPids = allPatientIds.filter((pid) => patientProfiles[pid] === batch.profile_type)
+    if (batchPids.length > 0) {
+      await setSimulationPattern(batchPids, batch.vitals_pattern)
+    }
+  }
+  await startSimulation({ interval_seconds: 3 })
+
   onProgress({
-    currentStep: 7,
-    totalSteps: 7,
+    currentStep: 9,
+    totalSteps: 9,
     stepLabel: "Complete",
-    detail: "Demo ready!",
+    detail: "Demo ready — live monitoring active!",
   })
 }
 
@@ -632,7 +669,7 @@ export function LoginModal() {
         showCloseButton={false}
         className={cn(
           "rounded-3xl border-0 shadow-2xl",
-          step === "config" ? "sm:max-w-3xl" : "sm:max-w-xl",
+          step === "config" ? "sm:max-w-3xl" : step === "persona" ? "sm:max-w-2xl" : "sm:max-w-xl",
         )}
         onPointerDownOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => e.preventDefault()}

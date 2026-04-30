@@ -74,6 +74,30 @@ class CDSLink(BaseModel):
     type: str = "absolute"
 
 
+class CDSVitalTrigger(BaseModel):
+    """A vital sign that breached a personalized threshold."""
+    vital: str
+    value: float
+    threshold: float
+    direction: str  # "above" or "below"
+    unit: str
+    source_rule: Optional[str] = None
+
+
+class CDSCardExtensions(BaseModel):
+    """Platform-specific extensions attached to a CDS Card."""
+    card_type: str  # "alert" or "care_gap"
+    measure_code: Optional[str] = None
+    rule_id: Optional[str] = None
+    rule_name: Optional[str] = None
+    days_overdue: Optional[int] = None
+    priority: Optional[str] = None
+    context_factors: list[str] = []
+    vital_triggers: list[CDSVitalTrigger] = []
+    escalation_reason: Optional[str] = None
+    ranking_weight: int = 0
+
+
 class CDSCard(BaseModel):
     """A single CDS Card returned to the EHR."""
     uuid: str
@@ -83,8 +107,25 @@ class CDSCard(BaseModel):
     source: CDSSource
     suggestions: list[CDSSuggestion] = []
     links: list[CDSLink] = []
+    extensions: Optional[CDSCardExtensions] = None
 
 
 class CDSHooksResponse(BaseModel):
     """Response body for a CDS Hooks invocation — a list of cards."""
     cards: list[CDSCard] = []
+
+
+# ---------------------------------------------------------------------------
+# Provenance
+# ---------------------------------------------------------------------------
+
+class CDSProvenanceResponse(BaseModel):
+    """Full provenance for a single CDS Card — the card, its source rule, and
+    the underlying alert or care-gap document from MongoDB."""
+    card: CDSCard
+    source_rule: Optional[dict] = None
+    care_gap_document: Optional[dict] = None
+    alert_document: Optional[dict] = None
+    patient_context: dict = {}
+    generated_at: str
+    data_source: str = "MongoDB patient_360 + cds_rules + alerts collections"

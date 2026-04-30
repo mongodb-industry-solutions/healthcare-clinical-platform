@@ -59,9 +59,10 @@ class CDSRepository:
 
     def get_patient_360(self, patient_id: str) -> Optional[dict[str, Any]]:
         """Fetch a Patient 360 document."""
-        return self._db.get_collection(PATIENT_360_COLLECTION).find_one(
+        doc = self._db.get_collection(PATIENT_360_COLLECTION).find_one(
             {"patient_id": patient_id}, {"_id": 0}
         )
+        return self._db.strip_qe_metadata(doc)
 
     def get_all_patient_360_ids(
         self,
@@ -168,6 +169,30 @@ class CDSRepository:
             {"patient_id": patient_id},
             {"$set": {
                 "care_gaps": care_gaps,
+                "updated_at": datetime.utcnow().isoformat(),
+            }},
+        )
+
+    def update_patient_360_ked_workflow(
+        self, patient_id: str, ked_workflow: dict[str, Any],
+    ) -> None:
+        """Replace interventions.ked_workflow in a Patient 360 document."""
+        self._db.get_collection(PATIENT_360_COLLECTION).update_one(
+            {"patient_id": patient_id},
+            {"$set": {
+                "interventions.ked_workflow": ked_workflow,
+                "updated_at": datetime.utcnow().isoformat(),
+            }},
+        )
+
+    def update_patient_360_cdc_hba_workflow(
+        self, patient_id: str, cdc_hba_workflow: dict[str, Any],
+    ) -> None:
+        """Replace interventions.cdc_hba_workflow in a Patient 360 document."""
+        self._db.get_collection(PATIENT_360_COLLECTION).update_one(
+            {"patient_id": patient_id},
+            {"$set": {
+                "interventions.cdc_hba_workflow": cdc_hba_workflow,
                 "updated_at": datetime.utcnow().isoformat(),
             }},
         )

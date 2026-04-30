@@ -1,35 +1,29 @@
 "use client"
 
 import * as React from "react"
-import Link from "next/link"
 import {
   AlertTriangle,
-  ArrowLeft,
-  ChevronRight,
-  Heart,
   Loader2,
-  Pill,
   Plus,
-  Stethoscope,
-  Thermometer,
-  TrendingDown,
-  TrendingUp,
-  Wind,
+  Pill,
+  Database,
+  GitBranch,
   Activity as ActivityIcon,
-  AlertCircle,
-  CheckCircle2,
+  ShieldCheck,
 } from "lucide-react"
+import Link from "next/link"
 
 import { cn } from "@/lib/utils"
 import {
+  fetchPatientFhirBundle,
   fetchPatientDetail,
   fetchPatientVitals,
+  type PatientFhirBundleResponse,
   type PatientDetailResponse,
   type VitalsWithContextResponse,
 } from "@/lib/api"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
 import {
   Dialog,
   DialogContent,
@@ -38,13 +32,32 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { type Patient360, type VitalsTimeSeries } from "@/lib/mock-data"
-import { VitalsChart, type ChartAnnotation } from "@/components/patients/vitals-chart"
+import { DataModelToggleCard } from "@/components/mongodb/data-model-toggle-card"
+import { MongodbActivityPanel } from "@/components/mongodb/mongodb-activity-panel"
+import { Patient360EvolutionCard } from "@/components/mongodb/patient-360-evolution-card"
+import { EncryptionComplianceCard } from "@/components/mongodb/encryption-compliance-card"
+import { type ChartAnnotation } from "@/components/patients/vitals-chart"
+
+import { PatientIdentityBar } from "./patient-identity-bar"
+import { PatientDetailWorkspaceLayout } from "./patient-detail-workspace-layout"
+import { ClinicalContextPanel } from "./clinical-context-panel"
+import { CurrentVitalsPanel } from "./current-vitals-panel"
+import { ClinicalConditionsStrip } from "./clinical-conditions-strip"
+import { CareGapWorkspaceLauncher } from "./care-gap-workspace-launcher"
+import { CareGapWorkspaceSurface, type ActiveSupportPanel } from "./care-gap-workspace-surface"
+import { KedWorkflowWorkspace } from "./ked-workflow-workspace"
+import { CdcHbaWorkflowWorkspace } from "./cdc-hba-workflow-workspace"
 
 interface PatientDetailProps {
   patientId: string
+}
+
+type FhirBundleState = {
+  status: "idle" | "loading" | "loaded" | "error"
+  data: PatientFhirBundleResponse | null
+  error: string | null
 }
 
 export function PatientDetail({ patientId }: PatientDetailProps) {
@@ -54,13 +67,21 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
   const [error, setError] = React.useState<string | null>(null)
   const [vitalsHours, setVitalsHours] = React.useState(24)
   const [annotations, setAnnotations] = React.useState<ChartAnnotation[]>([])
+  const [showDataModelDialog, setShowDataModelDialog] = React.useState(false)
   const [showAnnotationDialog, setShowAnnotationDialog] = React.useState(false)
   const [annotationLabel, setAnnotationLabel] = React.useState("")
   const [annotationType, setAnnotationType] = React.useState<ChartAnnotation["type"]>("note")
+  const [fhirBundleState, setFhirBundleState] = React.useState<FhirBundleState>({
+    status: "idle",
+    data: null,
+    error: null,
+  })
 
-  React.useEffect(() => {
-    setLoading(true)
-    Promise.all([
+  const [activeGapMeasure, setActiveGapMeasure] = React.useState<string | null>(null)
+  const [activeSupportPanel, setActiveSupportPanel] = React.useState<ActiveSupportPanel>("none")
+
+  const reloadPatientData = React.useCallback(() => {
+    return Promise.all([
       fetchPatientDetail(patientId),
       fetchPatientVitals(patientId, vitalsHours),
     ])
@@ -70,13 +91,40 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
         setError(null)
       })
       .catch((err) => setError(err.message))
-      .finally(() => setLoading(false))
   }, [patientId, vitalsHours])
+
+  React.useEffect(() => {
+    setLoading(true)
+    reloadPatientData().finally(() => setLoading(false))
+  }, [reloadPatientData])
 
   React.useEffect(() => {
     if (!detailData) return
     setAnnotations(buildAutoAnnotations(detailData.patient))
   }, [detailData])
+
+  React.useEffect(() => {
+    setFhirBundleState({ status: "idle", data: null, error: null })
+  }, [patientId])
+
+  const handleRequestFhirBundle = React.useCallback(() => {
+    if (fhirBundleState.status === "loading" || fhirBundleState.status === "loaded") return
+
+    setFhirBundleState({ status: "loading", data: null, error: null })
+
+    fetchPatientFhirBundle(patientId)
+      .then((response) => {
+        setFhirBundleState({ status: "loaded", data: response, error: null })
+      })
+      .catch((err: Error) => {
+        setFhirBundleState({ status: "error", data: null, error: err.message })
+      })
+  }, [fhirBundleState.status, patientId])
+
+  const handleSelectGap = React.useCallback((measure: string) => {
+    setActiveGapMeasure((prev) => (prev === measure ? null : measure))
+    setActiveSupportPanel("none")
+  }, [])
 
   if (loading) {
     return (
@@ -102,12 +150,9 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
   const patient = detailData.patient
   const {
     demographics,
-    conditions,
-    medications,
-    labs,
-    active_alerts,
     care_gaps,
     vitals_summary,
+    active_alerts,
     flags,
     personalized_thresholds,
   } = patient
@@ -115,6 +160,18 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
   const readings = (vitalsData?.readings ?? []) as VitalsTimeSeries[]
   const thresholds = vitalsData?.thresholds ?? personalized_thresholds
   const narrative = generateClinicalNarrative(patient)
+
+  const activeGap = activeGapMeasure
+    ? care_gaps.find((g) => g.hedis_measure === activeGapMeasure) ?? null
+    : null
+
+  const activeWorkflowKind: "ked" | "cdc-hba" | null = activeGap
+    ? activeGap.hedis_measure === "KED"
+      ? "ked"
+      : activeGap.hedis_measure === "CDC-HBA"
+        ? "cdc-hba"
+        : null
+    : null
 
   function handleAddAnnotation() {
     if (!annotationLabel.trim()) return
@@ -127,426 +184,175 @@ export function PatientDetail({ patientId }: PatientDetailProps) {
     setShowAnnotationDialog(false)
   }
 
+  const workflowContent =
+    activeWorkflowKind === "ked" ? (
+      <KedWorkflowWorkspace
+        patientId={patientId}
+        careGaps={care_gaps}
+        onWorkflowUpdated={reloadPatientData}
+      />
+    ) : activeWorkflowKind === "cdc-hba" ? (
+      <CdcHbaWorkflowWorkspace
+        patientId={patientId}
+        careGaps={care_gaps}
+        onWorkflowUpdated={reloadPatientData}
+      />
+    ) : null
+
   return (
-    <div className="flex flex-col gap-6 p-6">
-      {/* ---- Patient banner ---- */}
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" asChild>
-          <Link href="/patients">
-            <ArrowLeft className="h-4 w-4" />
-            <span className="sr-only">Back to patients</span>
-          </Link>
-        </Button>
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-semibold">
-          {demographics.given[0]}{demographics.family[0]}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl font-semibold truncate">{demographics.name}</h1>
-            <Badge variant="outline" className="text-xs shrink-0">
-              {demographics.age}y {demographics.gender === "female" ? "F" : "M"}
-            </Badge>
-            <ProfileBadge profile={patient.profile_type} />
+    <div className="flex flex-col gap-5 p-6">
+      {/* ---- Identity bar ---- */}
+      <PatientIdentityBar
+        demographics={demographics}
+        mrn={patient.mrn}
+        patientId={patient.patient_id}
+        hospitalName={patient.hospital_name}
+        profileType={patient.profile_type}
+        timeSinceLastAlert={detailData.time_since_last_alert}
+        onOpenInsights={() => setShowDataModelDialog(true)}
+      />
+
+      {/* ---- Workspace shell ---- */}
+      <PatientDetailWorkspaceLayout
+        supportRail={
+          <>
+            <ClinicalContextPanel
+              narrative={narrative}
+              alerts={active_alerts}
+            />
+            {vitals_summary && (
+              <CurrentVitalsPanel
+                vitalsSummary={vitals_summary}
+                thresholds={personalized_thresholds}
+                flags={flags}
+                onViewTrend={() => {
+                  if (!activeGapMeasure) return
+                  setActiveSupportPanel((prev) =>
+                    prev === "vitals-trend" ? "none" : "vitals-trend",
+                  )
+                }}
+              />
+            )}
+            <ClinicalConditionsStrip flags={flags} />
+          </>
+        }
+        workspaceColumn={
+          <div className="space-y-4">
+            <CareGapWorkspaceLauncher
+              careGaps={care_gaps}
+              activeGapMeasure={activeGapMeasure}
+              onSelectGap={handleSelectGap}
+            />
+
+            <CareGapWorkspaceSurface
+              activeGap={activeGap}
+              activeWorkflowKind={activeWorkflowKind}
+              workflowContent={workflowContent}
+              activeSupportPanel={activeSupportPanel}
+              onSetSupportPanel={setActiveSupportPanel}
+              readings={readings}
+              thresholds={thresholds}
+              vitalsHours={vitalsHours}
+              onSetVitalsHours={setVitalsHours}
+              annotations={annotations}
+              onOpenAnnotationDialog={() => setShowAnnotationDialog(true)}
+            />
           </div>
-          <p className="text-xs text-muted-foreground">
-            MRN: {patient.mrn}
-            <span className="mx-1.5">·</span>
-            {patient.hospital_name}
-            {detailData.time_since_last_alert && (
-              <>
-                <span className="mx-1.5">·</span>
-                Last alert: {detailData.time_since_last_alert}
-              </>
-            )}
-          </p>
-        </div>
-      </div>
+        }
+      />
 
-      {/* ---- Summary + Alerts: side by side ---- */}
-      <div className="grid gap-4 lg:grid-cols-5">
-        <Card className="lg:col-span-3">
-          <CardHeader className="pb-1.5">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Clinical Summary</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm leading-relaxed">{narrative}</p>
-          </CardContent>
-        </Card>
-
-        <Card className={cn(
-          "lg:col-span-2",
-          active_alerts.some((a) => a.severity === "critical") && "border-destructive/30",
-        )}>
-          <CardHeader className="pb-1.5">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Active Alerts</CardTitle>
-              <div className="flex items-center gap-1.5">
-                {active_alerts.filter((a) => a.severity === "critical").length > 0 && (
-                  <Badge variant="destructive" className="text-[10px] px-1.5 h-5">
-                    {active_alerts.filter((a) => a.severity === "critical").length} critical
-                  </Badge>
-                )}
-                {active_alerts.filter((a) => a.severity === "high").length > 0 && (
-                  <Badge className="text-[10px] px-1.5 h-5 bg-warning text-warning-foreground">
-                    {active_alerts.filter((a) => a.severity === "high").length} high
-                  </Badge>
-                )}
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {active_alerts.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No active alerts</p>
-            ) : (
-              <CompactAlertList alerts={active_alerts} />
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* ---- Main content grid ---- */}
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2 space-y-6">
-          {/* Current vitals row */}
-          {vitals_summary && (
-            <Card>
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-base font-medium">Current Vitals</CardTitle>
-                  <span className="text-xs text-muted-foreground">
-                    Updated {formatRelativeTime(vitals_summary.refreshed_at)}
-                  </span>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                  <VitalCard
-                    icon={Heart}
-                    label="Heart Rate"
-                    value={vitals_summary.latest.heart_rate}
-                    unit="bpm"
-                    trend={vitals_summary.trend_24h.heart_rate}
-                    threshold={personalized_thresholds.heart_rate}
-                    contextNote={flags.has_beta_blocker ? "On beta-blocker" : undefined}
-                  />
-                  <VitalCard
-                    icon={ActivityIcon}
-                    label="SpO2"
-                    value={vitals_summary.latest.spo2}
-                    unit="%"
-                    trend={vitals_summary.trend_24h.spo2}
-                    threshold={personalized_thresholds.spo2}
-                    contextNote={flags.has_ckd ? "CKD adjusted" : undefined}
-                  />
-                  <VitalCard
-                    icon={Wind}
-                    label="Resp Rate"
-                    value={vitals_summary.latest.respiratory_rate}
-                    unit="/min"
-                    trend={vitals_summary.trend_24h.respiratory_rate}
-                    threshold={personalized_thresholds.respiratory_rate}
-                  />
-                  <VitalCard
-                    icon={Thermometer}
-                    label="Temperature"
-                    value={vitals_summary.latest.temperature}
-                    unit="°C"
-                    trend={vitals_summary.trend_24h.temperature}
-                    threshold={personalized_thresholds.temperature}
-                  />
-                  <VitalCard
-                    icon={Stethoscope}
-                    label="Activity"
-                    value={vitals_summary.latest.activity_level}
-                    unit="METs"
-                    trend={vitals_summary.trend_24h.activity_level}
-                    threshold={personalized_thresholds.activity_level}
-                  />
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Vitals chart with annotations */}
-          <Card>
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-base font-medium">
-                    Vitals Trend ({vitalsHours}h)
-                  </CardTitle>
-                  <CardDescription>
-                    Real-time monitoring data with personalized thresholds
-                    {vitalsData && ` — ${vitalsData.total_readings} readings`}
-                  </CardDescription>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 gap-1 text-xs"
-                    onClick={() => setShowAnnotationDialog(true)}
+      {/* ---- MongoDB Insights dialog ---- */}
+      <Dialog open={showDataModelDialog} onOpenChange={(open) => {
+        setShowDataModelDialog(open)
+        if (open) reloadPatientData()
+      }}>
+        <DialogContent className="max-h-[90vh] overflow-hidden p-0 sm:max-w-5xl">
+          <div className="flex max-h-[90vh] flex-col">
+            <DialogHeader className="border-b px-6 py-5">
+              <DialogTitle>MongoDB Insights</DialogTitle>
+              <DialogDescription>
+                Explore the data model, recent MongoDB activity, and Patient 360 evolution for this
+                patient.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="overflow-auto px-6 py-5">
+              <Tabs defaultValue="data-model" className="gap-4">
+                <TabsList className="grid h-auto w-full grid-cols-1 gap-2 rounded-xl border border-[#0f5f3d]/15 bg-[#0f5f3d]/5 p-1.5 md:grid-cols-4">
+                  <TabsTrigger
+                    value="data-model"
+                    className="h-11 rounded-lg px-4 text-sm font-medium data-[state=active]:border-[#0f5f3d] data-[state=active]:bg-[#0f5f3d] data-[state=active]:text-white data-[state=active]:shadow-sm"
                   >
-                    <Plus className="h-3 w-3" />
-                    Annotate
-                  </Button>
-                  <div className="flex gap-1">
-                    {[6, 12, 24, 48, 72, 168].map((h) => (
-                      <Button
-                        key={h}
-                        variant={vitalsHours === h ? "default" : "outline"}
-                        size="sm"
-                        className="h-7 px-2 text-xs"
-                        onClick={() => setVitalsHours(h)}
-                      >
-                        {h}h
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {readings.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-12">
-                  No vitals data available for this time window
-                </p>
-              ) : (
-                <Tabs defaultValue="heart_rate" className="w-full">
-                  <TabsList className="mb-4">
-                    <TabsTrigger value="heart_rate">Heart Rate</TabsTrigger>
-                    <TabsTrigger value="spo2">SpO2</TabsTrigger>
-                    <TabsTrigger value="respiratory">Resp Rate</TabsTrigger>
-                    <TabsTrigger value="temperature">Temp</TabsTrigger>
-                  </TabsList>
-                  <TabsContent value="heart_rate">
-                    <VitalsChart
-                      data={readings}
-                      dataKey="heart_rate"
-                      label="Heart Rate"
-                      unit="bpm"
-                      color="var(--chart-1)"
-                      threshold={thresholds.heart_rate}
-                      annotations={annotations}
-                    />
-                  </TabsContent>
-                  <TabsContent value="spo2">
-                    <VitalsChart
-                      data={readings}
-                      dataKey="spo2"
-                      label="SpO2"
-                      unit="%"
-                      color="var(--chart-2)"
-                      threshold={thresholds.spo2}
-                      annotations={annotations}
-                    />
-                  </TabsContent>
-                  <TabsContent value="respiratory">
-                    <VitalsChart
-                      data={readings}
-                      dataKey="respiratory_rate"
-                      label="Respiratory Rate"
-                      unit="/min"
-                      color="var(--chart-3)"
-                      threshold={thresholds.respiratory_rate}
-                      annotations={annotations}
-                    />
-                  </TabsContent>
-                  <TabsContent value="temperature">
-                    <VitalsChart
-                      data={readings}
-                      dataKey="temperature"
-                      label="Temperature"
-                      unit="°C"
-                      color="var(--chart-4)"
-                      threshold={thresholds.temperature}
-                      annotations={annotations}
-                    />
-                  </TabsContent>
-                </Tabs>
-              )}
+                    <Database className="h-4 w-4" />
+                    Data Model
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="mongodb-activity"
+                    className="h-11 rounded-lg px-4 text-sm font-medium data-[state=active]:border-[#0f5f3d] data-[state=active]:bg-[#0f5f3d] data-[state=active]:text-white data-[state=active]:shadow-sm"
+                  >
+                    <ActivityIcon className="h-4 w-4" />
+                    MongoDB Activity
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="patient-360-evolution"
+                    className="h-11 rounded-lg px-4 text-sm font-medium data-[state=active]:border-[#0f5f3d] data-[state=active]:bg-[#0f5f3d] data-[state=active]:text-white data-[state=active]:shadow-sm"
+                  >
+                    <GitBranch className="h-4 w-4" />
+                    Patient 360 Evolution
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="encryption-compliance"
+                    className="h-11 rounded-lg px-4 text-sm font-medium data-[state=active]:border-[#0f5f3d] data-[state=active]:bg-[#0f5f3d] data-[state=active]:text-white data-[state=active]:shadow-sm"
+                  >
+                    <ShieldCheck className="h-4 w-4" />
+                    Encryption &amp; Compliance
+                  </TabsTrigger>
+                </TabsList>
 
-              {/* Annotation log */}
-              {annotations.length > 0 && (
-                <div className="mt-4 border-t pt-3">
-                  <p className="text-xs font-medium text-muted-foreground mb-2">
-                    Chart Annotations
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {annotations.map((ann, i) => (
-                      <Badge
-                        key={i}
-                        variant="outline"
-                        className={cn(
-                          "text-xs gap-1",
-                          ann.type === "event" && "border-warning/50 text-warning",
-                          ann.type === "medication" && "border-primary/50 text-primary",
-                        )}
-                      >
-                        {ann.type === "medication" && <Pill className="h-3 w-3" />}
-                        {ann.label}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+                <TabsContent value="data-model" className="pt-2">
+                  <DataModelToggleCard
+                    patientId={patientId}
+                    patient360={patient}
+                    rawFhirBundle={fhirBundleState.data?.bundle ?? null}
+                    fhirBundleStatus={fhirBundleState.status}
+                    fhirBundleError={fhirBundleState.error}
+                    onRequestFhirBundle={handleRequestFhirBundle}
+                    variant="embedded"
+                    jsonMaxHeightClassName="max-h-[52vh]"
+                  />
+                </TabsContent>
 
-        {/* ---- Right sidebar ---- */}
-        <div className="space-y-6">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base font-medium">Clinical Context</CardTitle>
-              <CardDescription>Factors affecting alert thresholds</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                <ContextFlag
-                  label="Beta-blocker therapy"
-                  active={flags.has_beta_blocker}
-                  effect="HR threshold: 90 bpm (vs 100)"
-                />
-                <ContextFlag
-                  label="Insulin therapy"
-                  active={flags.has_insulin}
-                  effect="Hypoglycemia monitoring enabled"
-                />
-                <ContextFlag
-                  label="CKD patient"
-                  active={flags.has_ckd}
-                  effect="SpO2 threshold: 92% (vs 95)"
-                />
-                <ContextFlag
-                  label="ACE inhibitor"
-                  active={flags.has_ace_inhibitor}
-                  effect="Potassium monitoring"
-                />
-              </div>
-            </CardContent>
-          </Card>
+                <TabsContent value="mongodb-activity" className="pt-2">
+                  <MongodbActivityPanel
+                    scope="patient"
+                    patientId={patientId}
+                    patient={patient}
+                    compact={false}
+                    title="MongoDB Activity"
+                  />
+                </TabsContent>
 
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base font-medium">Active Conditions</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {conditions.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No active conditions</p>
-                ) : (
-                  conditions.map((condition, i) => (
-                    <div key={i} className="flex items-start gap-2 text-sm">
-                      <div className="mt-0.5 h-2 w-2 rounded-full bg-chart-1" />
-                      <div className="flex-1">
-                        <span>{condition.display}</span>
-                        <span className="text-xs text-muted-foreground ml-2">
-                          ({condition.icd10})
-                        </span>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </CardContent>
-          </Card>
+                <TabsContent value="patient-360-evolution" className="pt-2">
+                  <Patient360EvolutionCard
+                    patientId={patientId}
+                    patient={patient}
+                    careGaps={care_gaps}
+                    alerts={active_alerts}
+                    workflowStatus={patient.interventions?.ked_workflow ?? null}
+                    lastRefreshedAt={vitals_summary?.refreshed_at ?? null}
+                  />
+                </TabsContent>
 
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base font-medium flex items-center gap-2">
-                <Pill className="h-4 w-4" />
-                Medications
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {medications.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No active medications</p>
-                ) : (
-                  medications.map((med, i) => (
-                    <div key={i} className="text-sm">
-                      <div className="font-medium">{med.display}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {med.dose} - {med.frequency}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base font-medium">Recent Labs</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {labs.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No recent labs</p>
-                ) : (
-                  labs.map((lab, i) => (
-                    <div key={i} className="flex items-center justify-between text-sm">
-                      <span className="truncate">{lab.display}</span>
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={cn(
-                            "font-mono tabular-nums",
-                            (lab.interpretation === "H" || lab.interpretation === "HH") &&
-                              "text-destructive",
-                            (lab.interpretation === "L" || lab.interpretation === "LL") &&
-                              "text-warning",
-                          )}
-                        >
-                          {lab.value} {lab.unit}
-                        </span>
-                        {(lab.interpretation === "H" || lab.interpretation === "HH") && (
-                          <Badge variant="destructive" className="text-[10px] px-1">
-                            H
-                          </Badge>
-                        )}
-                        {(lab.interpretation === "L" || lab.interpretation === "LL") && (
-                          <Badge className="text-[10px] px-1 bg-warning text-warning-foreground">
-                            L
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          {care_gaps.length > 0 && (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base font-medium">Care Gaps</CardTitle>
-                <CardDescription>HEDIS quality measures</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {care_gaps.map((gap, i) => (
-                    <div key={i} className="text-sm">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium">{gap.hedis_measure}</span>
-                        <Badge
-                          variant={gap.days_overdue > 0 ? "destructive" : "outline"}
-                          className="text-xs"
-                        >
-                          {gap.days_overdue > 0 ? `${gap.days_overdue}d overdue` : "Due soon"}
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-0.5">{gap.measure_name}</p>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      </div>
+                <TabsContent value="encryption-compliance" className="pt-2">
+                  <EncryptionComplianceCard
+                    patientId={patientId}
+                    patient360={patient}
+                  />
+                </TabsContent>
+              </Tabs>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* ---- Annotation dialog ---- */}
       <Dialog open={showAnnotationDialog} onOpenChange={setShowAnnotationDialog}>
@@ -695,217 +501,8 @@ function buildAutoAnnotations(patient: Patient360): ChartAnnotation[] {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Sub-components                                                     */
-/* ------------------------------------------------------------------ */
-
-function ProfileBadge({ profile }: { profile: string }) {
-  const variants: Record<string, { label: string; className: string }> = {
-    target: {
-      label: "High Risk",
-      className: "bg-destructive/10 text-destructive border-destructive/20",
-    },
-    diabetic: { label: "Diabetic", className: "bg-warning/10 text-warning border-warning/20" },
-    cardiac: { label: "Cardiac", className: "bg-chart-1/10 text-chart-1 border-chart-1/20" },
-    healthy: { label: "Healthy", className: "bg-success/10 text-success border-success/20" },
-  }
-  const v = variants[profile] || { label: profile, className: "" }
-  return (
-    <Badge variant="outline" className={cn("text-xs", v.className)}>
-      {v.label}
-    </Badge>
-  )
-}
-
-function CompactAlertList({ alerts }: { alerts: Patient360["active_alerts"] }) {
-  const [expandedId, setExpandedId] = React.useState<string | null>(null)
-
-  const sorted = [...alerts].sort((a, b) => {
-    const order: Record<string, number> = { critical: 0, high: 1, moderate: 2, medium: 2, low: 3 }
-    return (order[a.severity] ?? 4) - (order[b.severity] ?? 4)
-  })
-
-  return (
-    <div className="space-y-1">
-      {sorted.map((alert) => {
-        const isCritical = alert.severity === "critical"
-        const isHigh = alert.severity === "high"
-        const isExpanded = expandedId === alert.alert_id
-
-        return (
-          <div
-            key={alert.alert_id}
-            className={cn(
-              "rounded-md border transition-colors",
-              isCritical && "border-destructive/30 bg-destructive/5",
-              isHigh && "border-warning/30 bg-warning/5",
-              !isCritical && !isHigh && "border-border",
-            )}
-          >
-            <button
-              onClick={() => setExpandedId(isExpanded ? null : alert.alert_id)}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left"
-            >
-              <span className={cn(
-                "h-2 w-2 shrink-0 rounded-full",
-                isCritical && "bg-destructive",
-                isHigh && "bg-warning",
-                !isCritical && !isHigh && "bg-muted-foreground",
-              )} />
-              <span className="flex-1 truncate text-sm font-medium">{alert.title}</span>
-              <ChevronRight className={cn(
-                "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
-                isExpanded && "rotate-90",
-              )} />
-            </button>
-            {isExpanded && (
-              <div className="px-3 pb-2.5 pl-7">
-                <p className="text-xs text-muted-foreground leading-relaxed">{alert.reasoning}</p>
-                {alert.suggested_actions?.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mt-2">
-                    {alert.suggested_actions.slice(0, 3).map((action, i) => (
-                      <Badge key={i} variant="outline" className="text-[10px]">
-                        {action}
-                      </Badge>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-function VitalCard({
-  icon: Icon,
-  label,
-  value,
-  unit,
-  trend,
-  threshold,
-  contextNote,
-}: {
-  icon: React.ComponentType<{ className?: string }>
-  label: string
-  value: number
-  unit: string
-  trend: "stable" | "increasing" | "decreasing"
-  threshold: { low: number; high: number; source_rule: string | null }
-  contextNote?: string
-}) {
-  const status = getVitalStatus(value, threshold.low, threshold.high)
-  return (
-    <div
-      className={cn(
-        "rounded-lg border p-3",
-        status === "critical" && "border-destructive/50 bg-destructive/5",
-        status === "warning" && "border-warning/50 bg-warning/5",
-      )}
-    >
-      <div className="flex items-center justify-between">
-        <Icon
-          className={cn(
-            "h-4 w-4",
-            status === "normal" && "text-muted-foreground",
-            status === "warning" && "text-warning",
-            status === "critical" && "text-destructive",
-          )}
-        />
-        <TrendIndicator trend={trend} />
-      </div>
-      <div className="mt-2">
-        <span
-          className={cn(
-            "text-2xl font-bold tabular-nums",
-            status === "warning" && "text-warning",
-            status === "critical" && "text-destructive",
-          )}
-        >
-          {value % 1 !== 0 ? value.toFixed(1) : Math.round(value)}
-        </span>
-        <span className="text-sm text-muted-foreground ml-1">{unit}</span>
-      </div>
-      <div className="text-xs text-muted-foreground mt-1">{label}</div>
-      {contextNote && <div className="text-[10px] text-primary mt-0.5">{contextNote}</div>}
-    </div>
-  )
-}
-
-function TrendIndicator({ trend }: { trend: "stable" | "increasing" | "decreasing" }) {
-  if (trend === "stable")
-    return <span className="text-xs text-muted-foreground">Stable</span>
-  return (
-    <span
-      className={cn(
-        "flex items-center text-xs",
-        trend === "increasing" ? "text-warning" : "text-success",
-      )}
-    >
-      {trend === "increasing" ? (
-        <TrendingUp className="h-3 w-3" />
-      ) : (
-        <TrendingDown className="h-3 w-3" />
-      )}
-    </span>
-  )
-}
-
-function ContextFlag({
-  label,
-  active,
-  effect,
-}: {
-  label: string
-  active: boolean
-  effect: string
-}) {
-  return (
-    <div
-      className={cn(
-        "flex items-start gap-2 rounded-md p-2 text-sm",
-        active ? "bg-primary/5" : "opacity-50",
-      )}
-    >
-      {active ? (
-        <CheckCircle2 className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-      ) : (
-        <AlertCircle className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-      )}
-      <div>
-        <div className={cn(active ? "font-medium" : "text-muted-foreground")}>{label}</div>
-        {active && <div className="text-xs text-muted-foreground">{effect}</div>}
-      </div>
-    </div>
-  )
-}
-
-/* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
-
-function getVitalStatus(
-  value: number,
-  low: number,
-  high: number,
-): "normal" | "warning" | "critical" {
-  if (value < low * 0.9 || value > high * 1.1) return "critical"
-  if (value < low || value > high) return "warning"
-  return "normal"
-}
-
-function formatRelativeTime(isoString: string): string {
-  const date = new Date(isoString)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffMins = Math.floor(diffMs / 60000)
-  if (diffMins < 1) return "just now"
-  if (diffMins < 60) return `${diffMins}m ago`
-  const diffHours = Math.floor(diffMins / 60)
-  if (diffHours < 24) return `${diffHours}h ago`
-  return date.toLocaleDateString()
-}
 
 function shortCondition(display: string): string {
   const map: Record<string, string> = {

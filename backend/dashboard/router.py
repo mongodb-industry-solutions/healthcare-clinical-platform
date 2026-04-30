@@ -15,22 +15,34 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from dashboard.models import (
+    LongitudinalResponse,
     PatientDetailResponse,
+    PatientFhirBundleResponse,
     PatientListResponse,
+    PopulationCareGapMetricsResponse,
     SearchResponse,
     VitalsWithContextResponse,
 )
+from attribution.repository import AttributionRepository
 from dashboard.repository import DashboardRepository
 from dashboard.service import DashboardService
-from db.mdb import MongoDBConnector
 
 
-def get_dashboard_service() -> DashboardService:
-    """FastAPI dependency — constructs the full service + repo stack."""
-    return DashboardService(DashboardRepository(MongoDBConnector()))
+def get_dashboard_service(request: Request) -> DashboardService:
+    """FastAPI dependency — uses the shared (possibly encrypted) DB connector.
+
+    Injects the AttributionRepository so the population care-gap endpoint can
+    resolve `provider_id` filters into a patient-id `$in` clause without the
+    dashboard module taking a service-level dependency on attribution.
+    """
+    db = request.app.state.db
+    return DashboardService(
+        DashboardRepository(db),
+        attribution_repo=AttributionRepository(db),
+    )
 
 
 router = APIRouter(prefix="/dashboard", tags=["Clinician Dashboard"])
@@ -94,6 +106,30 @@ async def get_patient_detail(
     return result
 
 
+@router.get(
+    "/patients/{patient_id}/fhir-bundle",
+    response_model=PatientFhirBundleResponse,
+)
+async def get_patient_fhir_bundle(
+    patient_id: str,
+    svc: DashboardService = Depends(get_dashboard_service),
+) -> PatientFhirBundleResponse:
+    """
+    Return raw FHIR bundle data for the insights modal on demand.
+
+    This is "Layer A" — the canonical FHIR exchange format. The
+    patient_360 document (Layer B) is the derived CDS operational
+    store materialized from these FHIR resources.
+    """
+    result = svc.get_patient_fhir_bundle(patient_id)
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Patient 360 for {patient_id!r} not found.",
+        )
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Vitals with clinical context
 # ---------------------------------------------------------------------------
@@ -121,6 +157,76 @@ async def get_vitals_with_context(
             detail=f"Patient 360 for {patient_id!r} not found.",
         )
     return result
+
+
+# ---------------------------------------------------------------------------
+# Longitudinal trend analysis
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/patients/{patient_id}/longitudinal",
+    response_model=LongitudinalResponse,
+)
+async def get_longitudinal(
+    patient_id: str,
+    baseline_period_key: Optional[str] = Query(
+        default=None,
+        description="Selected baseline period key, e.g. 1_week, 1_month, 3_months, 6_months",
+    ),
+    svc: DashboardService = Depends(get_dashboard_service),
+) -> LongitudinalResponse:
+    """
+    Return longitudinal trend snapshots for a patient.
+
+    Each snapshot represents a historical period (6 months, 3 months,
+    1 month, 1 week, current) with aggregated vitals, risk scores,
+    and alert frequencies.
+    """
+    result = svc.get_longitudinal(patient_id, baseline_period_key=baseline_period_key)
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Longitudinal data for {patient_id!r} not found.",
+        )
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Population care-gap metrics
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/population/care-gap-metrics",
+    response_model=PopulationCareGapMetricsResponse,
+)
+async def get_population_care_gap_metrics(
+    hospital: Optional[str] = Query(
+        default=None, description="Filter by source hospital key",
+    ),
+    profile_type: Optional[str] = Query(
+        default=None, description="Filter by profile type",
+    ),
+    provider_id: Optional[str] = Query(
+        default=None,
+        description="Filter by attributed provider (Item 6 — currently a no-op)",
+    ),
+    svc: DashboardService = Depends(get_dashboard_service),
+) -> PopulationCareGapMetricsResponse:
+    """
+    Return population-level HEDIS care-gap metrics.
+
+    Single $facet aggregation over patient_360 produces per-measure open /
+    closed-controlled / closed-flagged / due-soon counts, plus open-gap
+    breakdowns by priority and hospital. The applicable denominators are
+    computed in the service layer using the same gating as the quality
+    engine, so the displayed "% open" matches what clinicians actually act
+    on.
+    """
+    return svc.get_population_care_gap_metrics(
+        hospital=hospital,
+        profile_type=profile_type,
+        provider_id=provider_id,
+    )
 
 
 # ---------------------------------------------------------------------------
