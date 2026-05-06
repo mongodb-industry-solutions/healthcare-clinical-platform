@@ -9,25 +9,12 @@ from typing import Any, Optional
 from pymongo import ASCENDING
 from db.mdb import MongoDBConnector
 
-# ---------------------------------------------------------------------------
-# Collection names
-# ---------------------------------------------------------------------------
-
 PATIENTS_COLLECTION = "synthetic_patients"
 VITALS_COLLECTION   = "synthetic_vitals"
-
-
-# ---------------------------------------------------------------------------
-# Repository
-# ---------------------------------------------------------------------------
 
 class SyntheticRepository:
     def __init__(self, db: MongoDBConnector):
         self._db = db
-
-    # ------------------------------------------------------------------
-    # Patients
-    # ------------------------------------------------------------------
 
     def insert_patients(self, docs: list[dict[str, Any]]) -> None:
         self._db.insert_many(PATIENTS_COLLECTION, docs)
@@ -63,9 +50,7 @@ class SyntheticRepository:
         result = self._db.get_collection(PATIENTS_COLLECTION).delete_many({})
         return result.deleted_count
 
-    # ------------------------------------------------------------------
-    # Vitals
-    # ------------------------------------------------------------------
+    ######## Vitals ########
 
     def insert_vitals(self, readings: list[dict[str, Any]]) -> None:
         self._db.insert_many(VITALS_COLLECTION, readings)
