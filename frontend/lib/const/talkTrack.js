@@ -4,7 +4,7 @@ export const TALK_TRACK = [
     content: [
       {
         heading: "Solution Overview",
-        body: "This platform demonstrates why MongoDB Atlas is a robust choice for healthcare clinical decision support systems (CDS). Organizations using AWS Healthlake (or similar FHIR data stores) for interoperability hit operational limits when trying to use that same store for real-time clinical workflows, high latency, poor nested aggregation queries, no native time-series support, and unpredictable usage-based costs. MongoDB Atlas fills that operational gap.",
+        body: "This solution leverages MongoDB Atlas as the operational layer for a clinical decision support system, enabling real-time vitals monitoring and HEDIS care gap computation on top of a FHIR based data foundation. Organizations using AWS Healthlake or similar FHIR data stores hit operational limits when trying to use that same store for real-time clinical workflows, high latency, poor nested aggregation queries, no native time series support, and unpredictable costs. MongoDB Atlas fills that gap, delivering low latency, and point of care decisioning that FHIR data lakes alone cannot support.",
       },
       {
         image: {
