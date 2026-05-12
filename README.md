@@ -1,153 +1,261 @@
-# Demo Template: Python Backend with Next.js Frontend
+# Care Gaps with Clinical Decision Support
 
-This repository provides a template for creating a web application with a Python backend and a Next.js frontend. The backend is managed using uv for dependency management, while the frontend is built with Next.js, offering a modern React-based user interface.
+A demonstration platform that shows how MongoDB Atlas powers real-time clinical decision support (CDS) on top of a FHIR data foundation. The platform targets a real operational gap: organizations using FHIR data lakes like AWS Healthlake for interoperability hit hard limits when they try to run real-time clinical workflows against the same store — high latency, poor nested query performance, no native time-series support, and unpredictable costs. MongoDB Atlas fills that operational gap.
 
-## Table of Contents
+## Architecture
 
-- [Demo Template: Python Backend with Next.js Frontend](#demo-template-python-backend-with-nextjs-frontend)
-  - [Table of Contents](#table-of-contents)
-  - [Features](#features)
-  - [Prerequisites](#prerequisites)
-  - [Getting Started](#getting-started)
-    - [Create a New Repository](#create-a-new-repository)
-    - [GitHub Desktop Setup](#github-desktop-setup)
-    - [Backend Setup](#backend-setup)
-  - [DEMO README](#demo-readme)
+![Architecture Diagram](frontend/public/architecture-diagram.png)
 
-## Features
+The platform uses a dual-layer persistence model:
 
-- Python backend with a RESTful API powered by [FastAPI](https://fastapi.tiangolo.com/)
-- Next.js frontend for a responsive user interface
-- Dependency management with uv ([More info](https://docs.astral.sh/uv/))
-- Easy setup and configuration
+| Layer | Store | Purpose |
+|---|---|---|
+| **Layer A — FHIR Exchange** | FHIR Data Store / `synthetic_patients` | Canonical FHIR R4 bundles for interoperability and compliance |
+| **Layer B — CDS Operational** | MongoDB Atlas / `patient_360` | Denormalized patient documents optimized for point-of-care queries |
+
+Wearable device vitals stream directly into a MongoDB Time Series collection (`synthetic_vitals`). Patient clinical data enters through the FHIR store and is materialized into MongoDB Atlas as a denormalized `patient_360` document. MongoDB then powers the real-time CDS engine, care gap workflows, embedded Atlas Charts, and queryable encryption for PHI protection.
+
+---
 
 ## Prerequisites
 
-Before you begin, ensure you have met the following requirements:
+### Docker
 
-- Python >=3.13,<3.14 - If you are Mac user, you can install Python 3.13 using this [link](https://www.python.org/downloads/).
-- Node.js 22 or higher
-- uv (install via [uv's official documentation](https://docs.astral.sh/uv/getting-started/installation/))
+Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) to run the platform as containers.
 
-## Getting Started
+### MongoDB Atlas
 
-Follow these steps to set up the project locally.
+This platform requires a MongoDB Atlas cluster (M10 or higher) for the operational data layer, Atlas Search, and Time Series collections.
 
-### Create a New Repository
+1. Sign up or log in at [MongoDB Atlas](https://www.mongodb.com/atlas).
+2. Create a new project or select an existing one.
+3. Click **Create a New Database** and choose the **M10** tier.
+4. Configure cluster settings and click **Finish and Close**.
+5. Go to **Network Access** and add your IP address to the allowlist.
+6. Click **Connect** on your cluster, select **Connect your application**, and copy the connection string. You will use this as `MONGODB_URI`.
 
-1. Navigate to the repository template on GitHub and click on **Use this template**.
-2. Create a new repository.
-3. **Do not** check the "Include all branches" option.
-4. Define a repository name following the naming convention: `<industry>-<project_name>-<highlighted_feature>`. For example, `fsi-leafybank-ai-personal-assistant` (use hyphens to separate words).
-   - The **industry** and **project name** are required; you can be creative with the highlighted feature.
-5. Provide a clear description for the repository, such as: "A repository template to easily create new demos by following the same structure."
-6. Set the visibility to **Internal**.
-7. Click **Create repository**.
+### AWS Account (Optional)
 
-### GitHub Desktop Setup
+An AWS account with Healthlake access is only required if you want to persist patient FHIR bundles in Healthlake. By default, all FHIR bundles are stored in MongoDB.
 
-1. Install GitHub Desktop if you haven't already. You can download it from [GitHub Desktop's official website](https://desktop.github.com/).
-2. Open GitHub Desktop and sign in to your GitHub account.
-3. Clone the newly created repository:
-   - Click on **File** > **Clone Repository**.
-   - Select your repository from the list and click **Clone**.
-4. Create your first branch:
-   - In the GitHub Desktop interface, click on the **Current Branch** dropdown.
-   - Select **New Branch** and name it `feature/branch01`.
-   - Click **Create Branch**.
+---
 
-### Backend Setup
+## Quick Start
 
-1. (Optional) Set your project description and author information in the `pyproject.toml` file:
-   ```toml
-   description = "Your Description"
-   authors = ["Your Name <you@example.com>"]
-2. Open the project in your preferred IDE (the standard for the team is Visual Studio Code).
-3. Open the Terminal within Visual Studio Code.
-4. Ensure you are in the root project directory where the `makefile` is located.
-5. Execute the following commands:
-  - uv initialization
-    ````bash
-    make uv_init
-    ````
-  - uv sync
-    ````bash
-    make uv_sync
-    ````
-6. Verify that the `.venv` folder has been generated within the `/backend` directory.
-
-### Running Backend Locally
-
-After setting up the backend dependencies, you can run the development server:
-
-1. Navigate to the backend directory:
-   ```bash
-   cd backend
-   ```
-
-2. Start the FastAPI development server:
-   ```bash
-   uv run uvicorn main:app --host 0.0.0.0 --port 8000
-   ```
-
-3. The backend API will be accessible at http://localhost:8000
-
-**Note**: If port 8000 is already in use (e.g., by Docker containers), either stop the containers with `make clean` or use a different port like `--port 8001`.
-
-### Frontend Setup
-
-1. Navigate to the `frontend` folder.
-2. Install dependencies by running:
-```bash
-npm install
-```
-3. Start the frontend development server with:
-````bash
-npm run dev
-````
-4. The frontend will now be accessible at http://localhost:3000 by default, providing a user interface.
-
-### Git Hooks Setup (Recommended)
-
-This repository includes a pre-commit hook that automatically scans for secrets and credentials before each commit, preventing accidental exposure of sensitive data.
-
-**Setup (run once after cloning):**
+### 1. Clone the Repository
 
 ```bash
-chmod +x setup-hooks.sh
-./setup-hooks.sh
+git clone <repository-url>
+cd healthcare-clinical-platform
 ```
 
-This configures Git to use the `.githooks` directory and enables the pre-commit security scanner.
+### 2. Configure Environment Variables
 
-**What it does:**
+Create a `.env` file in the root of the project:
 
-- Runs `security_check.sh` before every commit
-- Scans staged files for potential secrets (API keys, passwords, tokens, etc.)
-- Blocks the commit if security issues are detected
+```env
+NEXT_PUBLIC_API_URL="http://localhost:8000"
+MONGODB_URI="mongodb+srv://<USER>:<PASSWORD>@<HOSTNAME>/?retryWrites=true"
+DATABASE_NAME="hc_clinical_platform"
+APP_NAME="<ATLAS_APP_NAME>"
+HEALTHLAKE_DATASTORE_ID="<AWS_HEALTHLAKE_ID>"
+AWS_REGION="<AWS_REGION>"
+AWS_PROFILE="<AWS_PROFILE>"
+QE_ENABLED=true
+```
 
-**If a commit is blocked:**
+| Variable | Description |
+|---|---|
+| `NEXT_PUBLIC_API_URL` | Backend API URL the frontend calls |
+| `MONGODB_URI` | Atlas connection string |
+| `DATABASE_NAME` | Atlas database name |
+| `APP_NAME` | Atlas App Services application name |
+| `HEALTHLAKE_DATASTORE_ID` | AWS Healthlake datastore ID (optional) |
+| `AWS_REGION` | AWS region for Healthlake (optional) |
+| `AWS_PROFILE` | AWS CLI profile name (optional) |
+| `QE_ENABLED` | Enable MongoDB Queryable Encryption (`true` / `false`) |
 
-1. Review the security issues listed in the output
-2. Remove or properly secure the flagged credentials
-3. Re-stage your changes and commit again
-
-**Bypass (not recommended):**
+### 3. Deploy with Docker Compose
 
 ```bash
-git commit --no-verify
+docker compose up --build
 ```
 
-### Kanopy Deployment
+This starts two containers:
 
-For deploying your demo to Kanopy (MongoDB's internal Kubernetes platform), see the [KANOPY_DEPLOYMENT_README.md](KANOPY_DEPLOYMENT_README.md) for detailed instructions on:
+| Container | Port | Description |
+|---|---|---|
+| `cds-backend-container` | `8000` | FastAPI backend |
+| `cds-frontend-container` | `8080` | Next.js frontend |
 
-- Setting up Drone CI/CD pipeline
-- Configuring Kubernetes secrets
-- Choosing between separate pods vs multi-container deployments
-- Environment variables and secrets configuration
-- Resource management and troubleshooting
+Open [http://localhost:8080](http://localhost:8080) in your browser.
 
-## DEMO README
+---
 
-<h1 style="color:red">REPLACE THE CONTENT OF THIS README WITH `README-demo.md` and DELETE THE `README-demo.md` FILE!!!!!!!!! </h1>
+## Data Seeding
+
+The platform provides two demo personas at login.
+
+### Frida — Simulation Mode
+
+Select Frida to configure simulation settings before seeding. The platform runs a 9-step pipeline that generates and loads all data automatically:
+
+1. Generate synthetic FHIR R4 patient bundles into `synthetic_patients`
+2. Generate 24-hour vitals histories per patient into `synthetic_vitals` (Time Series collection)
+3. Materialize FHIR bundles into denormalized `patient_360` documents
+4. Seed 5 CDS rule definitions
+5. Compute per-patient personalized thresholds (e.g., HR threshold 90 for beta-blocker patients)
+6. Evaluate CDS rules against current vitals and generate clinical alerts
+7. Compute HEDIS care gaps for 5 measures per patient and write results to `patient_360`
+8. Seed provider-patient attribution relationships
+9. Start the real-time SSE vitals simulation worker
+
+### Default Persona — Existing Data Mode
+
+Select the default persona to connect to a previously seeded dataset with no simulation running. Use this mode when you want to demonstrate the platform against stable data or when the seeding pipeline has already run.
+
+---
+
+## Using the Application
+
+### Dashboard
+
+The dashboard surfaces patient risk aggregations and HEDIS measure data powered by an Atlas aggregation pipeline. The patient list is prioritized by risk score, factoring in clinical conditions, real-time vitals, medications, and open care gaps. Click **View MongoDB Pipeline** to inspect the live aggregation query.
+
+### Patient Detail
+
+Click any patient to open the Patient Detail view.
+
+- **Primary Concern** shows the most clinically significant condition. Click it to retrieve a CDS Hook card with actionable recommendations.
+- **Clinical Pressure** displays vital signs breaching personalized thresholds.
+- **Escalation Drivers** synthesize active alerts and open care gaps into a single priority ranking.
+- **Vitals Chart** streams live data from the wearable patch simulation. Watch deteriorating patterns trigger new alerts in real time, powered by MongoDB's native Time Series collection.
+
+### Intervention Workflows
+
+Click **Open Patient Chart** to view open care gaps and start an intervention workflow.
+
+1. Select a care gap (e.g., CDC-HBA — Comprehensive Diabetes Care HbA1c Testing).
+2. Order labs within the workflow.
+3. Record results by selecting a simulated outcome: **Controlled**, **Elevated**, or **Concerning**.
+4. Generate an automated Clinician Review Summary.
+
+All workflow state is written to the same `patient_360` MongoDB document — no separate tables, no joins, no schema migrations.
+
+### Care Gaps Tab
+
+The Care Gaps tab embeds an Atlas Charts dashboard directly in the application. Population-level metrics include Top Firing CDS Rules, Gap Status by HEDIS Measure, and HEDIS Compliance Rate by Measure. The charts query the live `patient_360` collection so they reflect current data without any ETL pipeline.
+
+---
+
+## Key MongoDB Features
+
+### Flexible Document Model
+
+The `patient_360` document collapses what would be dozens of FHIR resource lookups into a single sub-millisecond read. Demographics, conditions, medications, labs, vitals summary, care gaps, alerts, personalized thresholds, and intervention workflows all coexist in one document with no joins required.
+
+### Native Time Series Collections
+
+`synthetic_vitals` is a MongoDB Time Series collection built for wearable telemetry. Automatic bucketing, compressed storage, and range queries over timestamp and patient ID enable efficient trend analysis and deterioration detection that a FHIR data lake cannot support.
+
+### Aggregation Pipeline
+
+- **Dashboard patient list:** multi-patient aggregation with alert counts, care gap status, and vitals summaries in one round-trip.
+- **Care gap computation:** HEDIS logic backed by indexed queries on conditions, medications, and lab codes.
+- **Vitals trend analysis:** time-bucketed aggregations over `synthetic_vitals` for 2-hour baselines and 4-hour deterioration trends.
+
+### Schema Flexibility at Runtime
+
+KED and CDC-HBA intervention workflows have different shapes — different order fields, different evidence structures — yet both coexist inside the same `patient_360.interventions` array. No migrations are required as new workflow types are added.
+
+### Embedded Analytics with Atlas Charts
+
+Atlas Charts are embedded directly inside the application. Population-level metrics are served from the same Atlas cluster that powers the operational workload, with no separate BI tool, no data export, and no ETL pipeline.
+
+### Queryable Encryption for PHI Protection
+
+MongoDB Queryable Encryption lets the platform run queries directly on encrypted fields without decrypting them on the server. Encryption keys never leave the client. Even if the database server or application layer were compromised, patient data remains unreadable. This demonstrates that CDS workloads do not require a tradeoff between query performance and data protection — a critical capability for any production healthcare deployment.
+
+### Operational Separation from the FHIR Layer
+
+MongoDB Atlas sits alongside AWS Healthlake, not instead of it. FHIR remains the canonical interoperability and exchange format. MongoDB powers the derived, denormalized operational views that care coordinators query at the point of care. This dual-layer pattern is how modern health systems scale CDS without compromising FHIR compliance.
+
+### Predictable Cost Model
+
+AWS Healthlake charges per FHIR read, search query, data import, and export operation. A CDS workload running continuous alert evaluation, care gap computation, and vitals trend queries against Healthlake generates costs that scale directly with clinical activity. MongoDB Atlas uses tiered infrastructure pricing — the cluster size determines the cost, not the query volume. For organizations operating under tight budget cycles and value based care contracts, this cost predictability is a requirement for sustainable operations.
+
+---
+
+## Clinical Decision Support Engines
+
+### Alert Engine (Real-Time Monitoring)
+
+The Alert Engine evaluates patient vitals against CDS rules to generate clinical alerts with personalized thresholds, sustained-breach detection, 2-hour baseline calculations, and 4-hour trend analysis.
+
+| Rule | Trigger |
+|---|---|
+| Beta-Blocker Aware Tachycardia | HR above personalized threshold (90 for beta-blocker patients vs. 100 default) |
+| Multi-Factor Hypoglycemia | HR spike >20% above 2-hour baseline + T2DM + insulin + age 65 or older + low activity |
+| CKD Metabolic Acidosis | RR >22 sustained >30 min + CKD + T2DM + increasing 4-hour trend |
+| Sepsis Warning | 3 or more of 4 modified SIRS criteria + T2DM + age 65 or older |
+| Comparative Context | Same vital reading produces different severity based on patient context |
+
+### Quality Engine (HEDIS Care Gaps)
+
+The Quality Engine evaluates patient clinical histories against HEDIS measures targeting the Type 2 Diabetes and CKD cohort.
+
+| Measure | Code | Frequency |
+|---|---|---|
+| Comprehensive Diabetes Care — HbA1c Testing | CDC-HBA | 180 days |
+| Kidney Health Evaluation for Diabetes | KED | 365 days |
+| Controlling High Blood Pressure — Diabetes Subset | CBP | 365 days |
+| Statin Therapy for Patients with Diabetes | SPD | 365 days |
+| Eye Exam for Patients with Diabetes | EED | 365 days |
+
+Each care gap output includes structured evidence (found and missing), a recommended action, measurement period, last completed date, confidence level, and a priority score escalated by overdue days and clinical trends.
+
+---
+
+## Project Structure
+
+```
+healthcare-clinical-platform/
+├── backend/
+│   ├── main.py                        # FastAPI app and router registration
+│   ├── cds/
+│   │   ├── alert_engine.py            # Real-time threshold monitoring
+│   │   ├── quality_engine.py          # HEDIS care gap computation
+│   │   ├── hedis_measures.py          # 5 HEDIS measure definitions
+│   │   ├── rules_seed.py              # CDS rule definitions
+│   │   ├── service.py                 # CDS facade
+│   │   └── repository.py             # MongoDB operations for CDS
+│   ├── materializer/                  # FHIR to patient_360 transformation
+│   ├── synthetic/                     # FHIR bundle generator and vitals simulator
+│   ├── attribution/                   # Provider-patient attribution
+│   ├── fhir/                          # DEQM-aligned /fhir/Measure/$care-gaps endpoint
+│   ├── hooks/                         # CDS Hooks card generation
+│   ├── dashboard/                     # Dashboard aggregation
+│   ├── interventions/                 # KED and CDC-HBA workflows
+│   └── simulation/                    # SSE real-time vitals worker
+└── frontend/
+    ├── components/
+    │   ├── login/                     # Login modal and 9-step seeding pipeline
+    │   ├── dashboard/                 # Clinician dashboard
+    │   ├── patients/                  # Patient detail, care gaps, intervention workspaces
+    │   └── mongodb/                   # Data model toggle and document evolution views
+    └── lib/
+        ├── api.ts                     # API client
+        ├── mock-data.ts               # TypeScript interfaces
+        └── demo-context.tsx           # Demo state management
+```
+
+---
+
+## Resources
+
+- [MongoDB Atlas](https://www.mongodb.com/atlas)
+- [MongoDB Time Series Collections](https://www.mongodb.com/docs/manual/core/timeseries-collections/)
+- [MongoDB Queryable Encryption](https://www.mongodb.com/docs/manual/core/queryable-encryption/)
+- [Atlas Charts](https://www.mongodb.com/products/charts)
+- [HL7 FHIR R4](https://hl7.org/fhir/R4/)
+- [HEDIS Measures — NCQA](https://www.ncqa.org/hedis/)
