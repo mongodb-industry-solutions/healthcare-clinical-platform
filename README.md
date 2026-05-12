@@ -1,6 +1,14 @@
 # Care Gaps with Clinical Decision Support
 
-A demonstration platform that shows how MongoDB Atlas powers real-time clinical decision support (CDS) on top of a FHIR data foundation. The platform targets a real operational gap: organizations using FHIR data lakes like AWS Healthlake for interoperability hit hard limits when they try to run real-time clinical workflows against the same store — high latency, poor nested query performance, no native time-series support, and unpredictable costs. MongoDB Atlas fills that operational gap.
+![MongoDB](https://img.shields.io/badge/MongoDB-%234ea94b.svg?style=for-the-badge&logo=mongodb&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)
+![Next JS](https://img.shields.io/badge/Next-black?style=for-the-badge&logo=next.js&logoColor=white)
+![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)
+![TypeScript](https://img.shields.io/badge/typescript-%23007ACC.svg?style=for-the-badge&logo=typescript&logoColor=white)
+![Docker](https://img.shields.io/badge/docker-%230db7ed.svg?style=for-the-badge&logo=docker&logoColor=white)
+![AWS](https://img.shields.io/badge/AWS-%23FF9900.svg?style=for-the-badge&logo=amazon-aws&logoColor=white)
+
+A Solution that demonstrates how MongoDB Atlas powers real-time clinical decision support (CDS) on top of a FHIR data foundation. The platform targets a real operational gap: organizations using FHIR data lakes like AWS Healthlake for interoperability hit hard limits when they try to run real-time clinical workflows against the same store — high latency, poor nested query performance, no native time-series support, and unpredictable costs. MongoDB Atlas fills that operational gap.
 
 ## Architecture
 
@@ -259,3 +267,7 @@ healthcare-clinical-platform/
 - [Atlas Charts](https://www.mongodb.com/products/charts)
 - [HL7 FHIR R4](https://hl7.org/fhir/R4/)
 - [HEDIS Measures — NCQA](https://www.ncqa.org/hedis/)
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
