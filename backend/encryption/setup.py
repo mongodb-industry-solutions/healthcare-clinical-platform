@@ -67,10 +67,11 @@ def create_encrypted_patient_360(
 
     if ENCRYPTED_COLLECTION_NAME in db.list_collection_names():
         logger.info(
-            "Dropping existing '%s' collection for QE recreation.",
+            "Encrypted collection '%s' already exists — skipping creation.",
             ENCRYPTED_COLLECTION_NAME,
         )
-        db.drop_collection(ENCRYPTED_COLLECTION_NAME)
+        _ensure_indexes(db)
+        return
 
     ensure_key_vault(plain_client)
 

@@ -21,7 +21,7 @@ services:
       no_cache: true
       dockerfile: Dockerfile.frontend
       args:
-        - NEXT_PUBLIC_API_URL=http://localhost:8080
+        - NEXT_PUBLIC_API_URL=http://cds-backend-service:8000
     image: cds-frontend:latest
     ports:
       - "8080:8080"

@@ -15,7 +15,7 @@ ownership:
 envSecrets:
   MONGODB_URI: cds-platform-secrets
   DATABASE_NAME: cds-platform-secrets
-  
+
 sidecarContainers:
   - name: backend
     image: 275662791714.dkr.ecr.us-east-1.amazonaws.com/cds-healthcare-backend:latest
@@ -38,6 +38,15 @@ sidecarContainers:
 
       - name: QE_ENABLED
         value: "true"
+
+      # Stable 96-byte master key shared across all environments.
+      # Generate once with: python3 -c "import secrets,base64; print(base64.b64encode(secrets.token_bytes(96)).decode())"
+      # Store the result in the cds-platform-secrets Kubernetes secret as QE_LOCAL_MASTER_KEY.
+      - name: QE_LOCAL_MASTER_KEY
+        valueFrom:
+          secretKeyRef:
+            name: cds-platform-secrets
+            key: QE_LOCAL_MASTER_KEY
 
 # Add IRSA configuration here, role here gives access to bedrock, s3, aws secrets manager
 serviceAccount:
