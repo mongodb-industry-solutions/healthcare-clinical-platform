@@ -44,8 +44,8 @@ import {
   getEffectiveGapState,
 } from "@/lib/care-gap-measures"
 
-const CHARTS_BASE_URL = process.env.NEXT_PUBLIC_CHARTS_BASE_URL || "https://charts.mongodb.com/charts-jeffn-zsdtj"
-const CARE_GAP_DASHBOARD_ID = process.env.NEXT_PUBLIC_CHARTS_CARE_GAP_DASHBOARD_ID || "40eef755-0404-41ff-b74a-dbfbc4d309a4"
+const CHARTS_BASE_URL = process.env.NEXT_PUBLIC_CHARTS_BASE_URL
+const CARE_GAP_DASHBOARD_ID = process.env.NEXT_PUBLIC_CHARTS_CARE_GAP_DASHBOARD_ID
 
 type CareGapWithPatient = {
   gap: Patient360["care_gaps"][number]
