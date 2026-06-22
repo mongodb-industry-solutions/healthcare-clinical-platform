@@ -31,6 +31,11 @@ steps:
   # Step 2: Build and publish frontend Docker image
   - name: publish-frontend
     image: plugins/kaniko-ecr
+    environment:
+      NEXT_PUBLIC_CHARTS_BASE_URL:
+        from_secret: next_public_charts_base_url
+      NEXT_PUBLIC_CHARTS_CARE_GAP_DASHBOARD_ID:
+        from_secret: next_public_charts_care_gap_dashboard_id_staging
     settings:
       create_repository: true
       registry: 795250896452.dkr.ecr.us-east-1.amazonaws.com
@@ -124,6 +129,11 @@ steps:
   # Step 2: Build and publish frontend Docker image
   - name: publish-frontend-prod
     image: plugins/kaniko-ecr
+    environment:
+      NEXT_PUBLIC_CHARTS_BASE_URL:
+        from_secret: next_public_charts_base_url
+      NEXT_PUBLIC_CHARTS_CARE_GAP_DASHBOARD_ID:
+        from_secret: next_public_charts_care_gap_dashboard_id_prod
     settings:
       create_repository: true
       registry: 795250896452.dkr.ecr.us-east-1.amazonaws.com
