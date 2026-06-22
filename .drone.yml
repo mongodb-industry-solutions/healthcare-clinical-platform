@@ -31,11 +31,6 @@ steps:
   # Step 2: Build and publish frontend Docker image
   - name: publish-frontend
     image: plugins/kaniko-ecr
-    environment:
-      NEXT_PUBLIC_CHARTS_BASE_URL:
-        from_secret: next_public_charts_base_url
-      NEXT_PUBLIC_CHARTS_CARE_GAP_DASHBOARD_ID:
-        from_secret: next_public_charts_care_gap_dashboard_id_staging
     settings:
       create_repository: true
       registry: 795250896452.dkr.ecr.us-east-1.amazonaws.com
@@ -49,9 +44,9 @@ steps:
         from_secret: ecr_access_key
       secret_key:
         from_secret: ecr_secret_key
-      build_args_from_env:
-        - NEXT_PUBLIC_CHARTS_BASE_URL
-        - NEXT_PUBLIC_CHARTS_CARE_GAP_DASHBOARD_ID
+      build_args:
+        - NEXT_PUBLIC_CHARTS_BASE_URL=https://charts.mongodb.com/charts-jeffn-zsdtj
+        - NEXT_PUBLIC_CHARTS_CARE_GAP_DASHBOARD_ID=40eef755-0404-41ff-b74a-dbfbc4d309a4
     when:
       event:
         - push
@@ -129,11 +124,6 @@ steps:
   # Step 2: Build and publish frontend Docker image
   - name: publish-frontend-prod
     image: plugins/kaniko-ecr
-    environment:
-      NEXT_PUBLIC_CHARTS_BASE_URL:
-        from_secret: next_public_charts_base_url
-      NEXT_PUBLIC_CHARTS_CARE_GAP_DASHBOARD_ID:
-        from_secret: next_public_charts_care_gap_dashboard_id_prod
     settings:
       create_repository: true
       registry: 795250896452.dkr.ecr.us-east-1.amazonaws.com
@@ -147,9 +137,9 @@ steps:
         from_secret: ecr_access_key
       secret_key:
         from_secret: ecr_secret_key
-      build_args_from_env:
-        - NEXT_PUBLIC_CHARTS_BASE_URL
-        - NEXT_PUBLIC_CHARTS_CARE_GAP_DASHBOARD_ID
+      build_args:
+        - NEXT_PUBLIC_CHARTS_BASE_URL=https://charts.mongodb.com/charts-jeffn-zsdtj
+        - NEXT_PUBLIC_CHARTS_CARE_GAP_DASHBOARD_ID=db74bec8-f2ea-41da-9ba4-64779190d567
     when:
       event:
         - push
