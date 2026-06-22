@@ -49,9 +49,9 @@ steps:
         from_secret: ecr_access_key
       secret_key:
         from_secret: ecr_secret_key
-      build_args_from_env:
-        - NEXT_PUBLIC_CHARTS_BASE_URL
-        - NEXT_PUBLIC_CHARTS_CARE_GAP_DASHBOARD_ID
+      build_args:
+        - NEXT_PUBLIC_CHARTS_BASE_URL=https://charts.mongodb.com/charts-jeffn-zsdtj
+        - NEXT_PUBLIC_CHARTS_CARE_GAP_DASHBOARD_ID=40eef755-0404-41ff-b74a-dbfbc4d309a4
     when:
       event:
         - push
@@ -147,9 +147,9 @@ steps:
         from_secret: ecr_access_key
       secret_key:
         from_secret: ecr_secret_key
-      build_args_from_env:
-        - NEXT_PUBLIC_CHARTS_BASE_URL
-        - NEXT_PUBLIC_CHARTS_CARE_GAP_DASHBOARD_ID
+      build_args:
+        - NEXT_PUBLIC_CHARTS_BASE_URL=https://charts.mongodb.com/charts-jeffn-zsdtj
+        - NEXT_PUBLIC_CHARTS_CARE_GAP_DASHBOARD_ID=db74bec8-f2ea-41da-9ba4-64779190d567
     when:
       event:
         - push
