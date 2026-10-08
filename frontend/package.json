@@ -80,5 +80,9 @@
     "tailwindcss": "^4",
     "tw-animate-css": "1.3.3",
     "typescript": "^5.7"
+  },
+  "overrides": {
+    "lodash": "^4.18.0",
+    "@humanfs/node": "^0.16.8"
   }
 }
